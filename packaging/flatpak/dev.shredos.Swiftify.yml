@@ -80,19 +80,29 @@ modules:
         sha256: e51e69e89489f199530f13d32a4342da3ddb2cf34842f364603a066db05afbf3
 
   - name: swiftify
-    buildsystem: cmake-ninja
-    builddir: true
+    # explicit commands: the fonts must be in the build folder before cmake
+    # configures (it skips a download whose file and hash already match), and
+    # flatpak-builder's own build folder cannot be written to ahead of it
+    buildsystem: simple
     build-options:
       append-path: /usr/lib/sdk/rust-stable/bin
       env:
         CARGO_HOME: /run/build/swiftify/cargo
         CARGO_NET_OFFLINE: 'true'
-    config-opts:
-      - -DCMAKE_BUILD_TYPE=Release
-      - -DBUILD_TESTING=OFF
+    build-commands:
+      - mkdir -p flatpak-build/fonts
+      - cp flatpak-fonts/* flatpak-build/fonts/
       # corrosion comes from the sources below, not the network
-      - -DFETCHCONTENT_FULLY_DISCONNECTED=ON
-      - -DFETCHCONTENT_SOURCE_DIR_CORROSION=/run/build/swiftify/corrosion
+      - >-
+        cmake -S . -B flatpak-build -G Ninja
+        -DCMAKE_INSTALL_PREFIX=/app
+        -DCMAKE_BUILD_TYPE=Release
+        -DBUILD_TESTING=OFF
+        -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+        -DFETCHCONTENT_SOURCE_DIR_CORROSION=/run/build/swiftify/corrosion
+      - cmake --build flatpak-build -j $FLATPAK_BUILDER_N_JOBS
+      - cmake --install flatpak-build
+      - install -Dm644 packaging/flatpak/dev.shredos.Swiftify.metainfo.xml /app/share/metainfo/dev.shredos.Swiftify.metainfo.xml
     sources:
       - type: dir
         path: ../..
@@ -101,28 +111,28 @@ modules:
           - .flatpak-builder
           - flatpak-repo
           - spotify-core/target
+          - flatpak-build
+          - swiftify.flatpak
       - type: git
         url: https://github.com/corrosion-rs/corrosion.git
         tag: v0.6.1
         commit: 1499b14e4906a2890f5cee1547c8848db261753d
         dest: corrosion
-      # the fonts cmake would download, at the paths it checks first, with its hashes
+      # the fonts cmake would download, with its hashes; copied where it checks first
       - type: file
         url: https://raw.githubusercontent.com/google/material-design-icons/737e3324305806514d7909874fa1818ae1808232/variablefont/MaterialSymbolsRounded%5BFILL,GRAD,opsz,wght%5D.ttf
         sha256: 95b24392bb49efd1bc3e92cff4e2452ad094461bab7c97e7d8723fab97e330ca
-        dest: _flatpak_build/fonts
+        dest: flatpak-fonts
         dest-filename: MaterialSymbolsRounded.ttf
       - type: file
         url: https://raw.githubusercontent.com/google/fonts/a0e3dbcdc3a3ecfafff3f071159ae0221628922d/ofl/googlesansflex/GoogleSansFlex%5BGRAD,ROND,opsz,slnt,wdth,wght%5D.ttf
         sha256: c31a482fbecbf2e07e6890134d20078723aadf732c9b9c6c9a44f86f8265b6fe
-        dest: _flatpak_build/fonts
+        dest: flatpak-fonts
         dest-filename: GoogleSansFlex.ttf
       - type: file
         url: https://raw.githubusercontent.com/google/fonts/a0e3dbcdc3a3ecfafff3f071159ae0221628922d/ofl/googlesansflex/OFL.txt
         sha256: fc13d69f63e36d284b6e383d4d1463d8ad404f0aa065e57cf961252d51063137
-        dest: _flatpak_build/fonts
+        dest: flatpak-fonts
         dest-filename: GoogleSansFlex-OFL.txt
       # spotify-core's crates, offline (cargo-sources.py)
       - cargo-sources.json
-    post-install:
-      - install -Dm644 /run/build/swiftify/packaging/flatpak/dev.shredos.Swiftify.metainfo.xml /app/share/metainfo/dev.shredos.Swiftify.metainfo.xml

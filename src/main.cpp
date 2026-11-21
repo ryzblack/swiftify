@@ -259,7 +259,8 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationName(QStringLiteral("Swiftify"));
     QGuiApplication::setApplicationVersion(QStringLiteral(SWIFTIFY_VERSION));
     // the wayland app id, which hyprland window rules and the .desktop file match.
-    QGuiApplication::setDesktopFileName(QStringLiteral("swiftify"));
+    // a flatpak renames the desktop entry to its app id, and the window has to match it
+    QGuiApplication::setDesktopFileName(qEnvironmentVariable("FLATPAK_ID", QStringLiteral("swiftify")));
     // the tray menu can fall back to widgets on linux
 #if defined(Q_OS_LINUX) || defined(Q_OS_WIN)
     QApplication application(argc, argv);
