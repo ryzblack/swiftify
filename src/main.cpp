@@ -263,6 +263,10 @@ int main(int argc, char *argv[])
     QGuiApplication::setDesktopFileName(qEnvironmentVariable("FLATPAK_ID", QStringLiteral("swiftify")));
     // the tray menu can fall back to widgets on linux
 #if defined(Q_OS_LINUX) || defined(Q_OS_WIN)
+#ifdef SWIFTIFY_HAS_WEBENGINE
+    // youtube music's sign-in window shares the scene graph's gl contexts
+    QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+#endif
     QApplication application(argc, argv);
 #else
     QGuiApplication application(argc, argv);

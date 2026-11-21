@@ -181,15 +181,16 @@ u can also get every build from [shredos.dev](https://shredos.dev/#download)
 
 ### youtube music instead
 
-no premium or client id needed. pick **settings → account → music service → youtube music**.
-search and playback work signed out. for your library, likes, playlists and history, paste the
-`Cookie` header of a signed-in music.youtube.com tab (devtools → network → any request) or a
-cookies.txt export into the sign-in field; it is kept in your keychain.
+no premium or client id needed. on the first launch pick **youtube music**, then sign in or
+continue without signing in (switch any time under **settings → account → music service**).
+search and playback work signed out. signing in opens google's sign-in in a window of swiftify;
+your library, likes, playlists and history then come along, and songs you play join your
+youtube history on every device. the login is kept in your keychain.
 
-playback fetches each song's audio with [yt-dlp](https://github.com/yt-dlp/yt-dlp), which needs
-node or deno for youtube's javascript: install them (the flatpak bundles yt-dlp and node). songs you play
-are added to your youtube history, so it follows you to other devices. spotify and youtube music
-logins are separate; switching keeps both.
+the sign-in window needs QtWebEngine (`qt6-webengine-dev` to build; the flatpak has it). built
+without it, the settings take the `Cookie` header of a signed-in music.youtube.com tab instead.
+age-gated and made-for-kids songs play through [yt-dlp](https://github.com/yt-dlp/yt-dlp) when
+it is installed; everything else plays without it.
 
 ### privacy
 

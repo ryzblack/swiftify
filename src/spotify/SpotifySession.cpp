@@ -67,6 +67,19 @@ SpotifySession::SpotifySession(PlaybackCore *core, CredentialStore *credentials,
     if (!s_instance) {
         s_instance = this;
     }
+    // the chosen service's library follows whichever of these changes
+    for (const auto signal : {&SpotifySession::libraryConnectedChanged, &SpotifySession::musicServiceChanged,
+                              &SpotifySession::youTubeChanged}) {
+        connect(this, signal, this, &SpotifySession::libraryAvailableChanged);
+    }
+    connect(&m_youTubeLogin, &YouTubeLogin::signedIn, this, &SpotifySession::signInToYouTube);
+    // a youtube call refused for the login means youtube no longer takes it
+    m_webApi.setFailureHandler([this](const QString &service, const SpotifyError &error) {
+        if (service == WebApi::kYouTube && m_youTubeSignedIn
+            && (error.kind() == SpotifyError::Kind::LoginRevoked || error.kind() == SpotifyError::Kind::Unauthorized)) {
+            setYouTubeLogin(QStringLiteral("expired"));
+        }
+    });
     // youtube's login, when signing in or using it changed it, goes to the keychain
     m_webApi.setStateHandler([this](const QString &service, const QString &state) {
         if (service == WebApi::kYouTube) {
@@ -212,7 +225,30 @@ void SpotifySession::setMusicService(const QString &service)
     }
     m_webApi.setService(service);
     emit musicServiceChanged();
-    emit libraryConnectedChanged();
+}
+
+void SpotifySession::setYouTubeLogin(const QString &state)
+{
+    if (state == m_youTubeState) {
+        return;
+    }
+    m_youTubeState = state;
+    emit youTubeChanged();
+}
+
+/// whether youtube still takes the saved cookies, asked of youtube itself
+QCoro::Task<> SpotifySession::checkYouTubeLogin()
+{
+    try {
+        const QJsonValue check = co_await m_webApi.callOn(WebApi::kYouTube, QStringLiteral("checkLogin"));
+        if (!check.toObject().value(QStringLiteral("valid")).toBool(true)) {
+            setYouTubeLogin(QStringLiteral("expired"));
+        }
+    } catch (const SpotifyError &error) {
+        // offline or youtube unreachable: the login may well still be good
+        qWarning().noquote() << "the YouTube Music login could not be checked:" << error.message();
+    } catch (const Cancelled &) {
+    }
 }
 
 void SpotifySession::setYouTubeState(bool signedIn, bool busy)
@@ -222,6 +258,7 @@ void SpotifySession::setYouTubeState(bool signedIn, bool busy)
     }
     m_youTubeSignedIn = signedIn;
     m_youTubeBusy = busy;
+    m_youTubeState = signedIn ? QStringLiteral("connected") : QStringLiteral("anonymous");
     emit youTubeChanged();
 }
 
@@ -232,6 +269,9 @@ QCoro::Task<> SpotifySession::restoreYouTube()
         const QJsonValue status = co_await m_webApi.callOn(WebApi::kYouTube, QStringLiteral("restoreState"),
                                                             {{QStringLiteral("state"), QString::fromUtf8(login)}});
         setYouTubeState(status.toObject().value(QStringLiteral("signedIn")).toBool(), false);
+        if (m_youTubeSignedIn) {
+            co_await checkYouTubeLogin();
+        }
         if (m_youTubeSignedIn && m_webApi.isYouTube()) {
             emit musicServiceChanged();
         }
@@ -247,6 +287,11 @@ void SpotifySession::signInToYouTube(const QString &cookies)
         return;
     }
     detach(runYouTubeSignIn(QStringLiteral("signIn"), {{QStringLiteral("cookie"), cookies}}));
+}
+
+void SpotifySession::beginYouTubeLogin()
+{
+    m_youTubeLogin.open();
 }
 
 void SpotifySession::signOutOfYouTube()

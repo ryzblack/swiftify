@@ -121,10 +121,11 @@ QCoro::Task<QJsonValue> WebApi::callOn(QString service, QString method, QJsonObj
     try {
         payload = co_await m_core->serviceCall(service, method, body, accessToken);
     } catch (const SpotifyError &error) {
-        if (error.kind() != SpotifyError::Kind::Core) {
-            throw;
+        const SpotifyError failure = error.kind() == SpotifyError::Kind::Core ? serviceError(error.message()) : error;
+        if (m_onFailure) {
+            m_onFailure(service, failure);
         }
-        throw serviceError(error.message());
+        throw failure;
     }
     QJsonParseError parseError;
     const QJsonObject envelope = QJsonDocument::fromJson(payload.toUtf8(), &parseError).object();

@@ -39,7 +39,7 @@ Artist and Playlist shapes. A new service is one impl and one arm in `music::cal
 Consequences: `SpotifyJson.cpp` is gone; the web api's QtTest cases are Rust tests now.
 
 ## ADR-005: YouTube Music through InnerTube in Rust, audio through yt-dlp
-Status: accepted (2026-11-21)
+Status: superseded by ADR-008 (2026-11-21)
 Context: the user chose InnerTube in Rust (rustypipe 0.11.4). Its catalog, library and history
 calls work. Its streams do not (tested 2026-11-21): the iOS/Android/VR clients are cut off after
 ~1 MB without an attestation token, web clients carry no stream URLs (SABR), and rustypipe's
@@ -65,3 +65,28 @@ Status: accepted (2026-11-21)
 Decision: YouTube Music's login (its cookies) goes to the secret service through QtKeychain under
 `youtube-music-login`, apart from Spotify's entries (logging out of one keeps the other). Only the
 login part of rustypipe's cache is kept; rustypipe's error reports to disk are turned off.
+
+## ADR-008: YouTube Music's audio from innertube's visionOS client
+Status: accepted (2026-11-21), supersedes ADR-005
+Context: yt-dlp failed songs with "Sign in to confirm you're not a bot". Metrolist's playback
+library (MetrolistGroup/innertubex, PlaybackClientCatalog, 2026-11-20) lists the VISIONOS 0.1
+client as the fastest for normal and non-age-gated explicit audio, signed in and out, given
+visitor data, with direct unsigned stream urls. Tested 2026-11-21: player OK, every byte range
+of the m4a 206.
+Decision: `spotify-core/src/music/youtube_stream.rs` asks music.youtube.com's player as that
+client, with rustypipe's visitor data, and downloads the AAC stream in ranges. yt-dlp is only
+asked for songs that client is refused (age-gated, made for kids), when it is installed.
+Consequences: no external program for normal playback; a client profile change is one constant
+in one file.
+
+## ADR-009: YouTube Music sign-in in a window of the app
+Status: accepted (2026-11-21)
+Context: youtube music's library, likes and history answer the account's google cookies (rustypipe
+uses OAuth for the TV client only). An external browser keeps its cookies to itself, so it cannot
+sign the app in; Metrolist's desktop app signs in in an embedded WebView and keeps its cookies.
+Decision: `src/spotify/YouTubeLogin` opens accounts.google.com in a QtWebEngine window with an
+off-the-record profile, takes the youtube.com cookies once they hold SAPISID and hands them to
+the session, which keeps them in the keychain. Built when QtWebEngine is found (the flatpak's
+base app provides it); without it the cookies are pasted.
+Consequences: QtWebEngine joins the dependencies (optional); nothing of the sign-in is written
+to disk but the keychain entry.

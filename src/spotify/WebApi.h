@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include "spotify/SpotifyError.h"
 #include "spotify/SpotifyTypes.h"
 
 #include <QByteArray>
@@ -55,6 +56,11 @@ public:
     void setStateHandler(std::function<void(const QString &service, const QString &state)> handler)
     {
         m_onState = std::move(handler);
+    }
+    /// every failed call, before it is thrown on (a login a service stopped taking)
+    void setFailureHandler(std::function<void(const QString &service, const SpotifyError &error)> handler)
+    {
+        m_onFailure = std::move(handler);
     }
 
     QCoro::Task<Profile> profile(QString accessToken);
@@ -95,6 +101,7 @@ private:
     PlaybackCore *m_core;
     QString m_service = kSpotify;
     std::function<void(const QString &, const QString &)> m_onState;
+    std::function<void(const QString &, const SpotifyError &)> m_onFailure;
 };
 
 } // namespace swiftify

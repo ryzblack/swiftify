@@ -59,7 +59,7 @@ Platform.MenuBar {
         Platform.MenuItem {
             text: qsTr("New Playlist…")
             shortcut: StandardKey.New
-            enabled: Session.libraryConnected
+            enabled: Session.libraryAvailable
             onTriggered: UiState.beginCreatePlaylist()
         }
         Platform.MenuSeparator {}

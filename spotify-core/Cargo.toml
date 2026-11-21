@@ -31,7 +31,7 @@ reqwest = "0.12"
 rustypipe = { version = "=0.11.4", default-features = false, features = ["default-tls", "userdata"] }
 sha1 = "0.10"
 swift-bridge = { version = "=0.1.59", features = ["async"], optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs", "io-util"] }
 
 [build-dependencies]
 swift-bridge-build = { version = "=0.1.59", optional = true }

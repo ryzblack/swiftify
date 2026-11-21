@@ -169,7 +169,7 @@ Flickable {
                 spacing: 12
                 LoadingSpinner { anchors.horizontalCenter: parent.horizontalCenter }
                 StyledText {
-                    text: qsTr("Searching Spotify…")
+                    text: qsTr("Searching %1…").arg(Session.musicServiceName)
                     color: Appearance.colors.onSurfaceVariant
                 }
             }

@@ -146,7 +146,7 @@ QVariantMap Mpris::metadata() const
         {QStringLiteral("mpris:trackid"), QVariant::fromValue(trackPath(song))},
         {QStringLiteral("xesam:title"), song.name},
         {QStringLiteral("xesam:artist"), artists},
-        {QStringLiteral("xesam:url"), QStringLiteral("https://open.spotify.com/track/") + song.spotifyId()},
+        {QStringLiteral("xesam:url"), song.shareUrl()},
     };
     if (!song.albumName.isEmpty()) {
         map.insert(QStringLiteral("xesam:album"), song.albumName);

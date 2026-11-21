@@ -414,7 +414,7 @@ ApplicationWindow {
         DropArea {
             id: musicDrop
             anchors.fill: parent
-            enabled: Session.libraryConnected
+            enabled: Session.libraryAvailable
             onEntered: (drag) => drag.accepted = drag.hasUrls
             onDropped: (drop) => {
                 if (!drop.hasUrls) {

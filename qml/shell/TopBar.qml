@@ -33,14 +33,16 @@ Item {
     property bool windowControlsOnRight: false
     property bool inspectorShown: false
     readonly property bool onPlaylist: Library.page === Library.Page.Playlist && Library.selectedPlaylist.valid
-    readonly property bool searching: Session.libraryConnected && Library.page === Library.Page.Search
+    readonly property bool searching: Session.libraryAvailable && Library.page === Library.Page.Search
     readonly property bool compact: width < 600
     readonly property real buttonSize: width < 420 ? 26 : (compact ? 34 : 46)
     readonly property real searchLeftEdge: back.x + back.width + 8
     readonly property real searchRightEdge: rightControls.x - 8
     // Reserve the collapsed field's space even while its overlay is focused.
     readonly property real reservedSearchWidth: Math.max(40, Math.min(340, searchRightEdge - searchLeftEdge - (onPlaylist ? playlistActions.implicitWidth + 8 : 0)))
-    readonly property string playlistLink: "https://open.spotify.com/playlist/" + Library.selectedPlaylist.id
+    readonly property string playlistLink: Library.selectedPlaylist.uri.startsWith("ytmusic:")
+        ? "https://music.youtube.com/playlist?list=" + Library.selectedPlaylist.id
+        : "https://open.spotify.com/playlist/" + Library.selectedPlaylist.id
 
     function focusSearch() {
         if (search.visible) {
@@ -262,7 +264,7 @@ Item {
                 return 0;
             return editing ? Math.max(40, Math.min(340, root.searchRightEdge - root.searchLeftEdge)) : root.reservedSearchWidth;
         }
-        placeholder: root.searching ? qsTr("Search Spotify") : qsTr("Find in Playlist")
+        placeholder: root.searching ? qsTr("Search %1").arg(Session.musicServiceName) : qsTr("Find in Playlist")
         text: root.searching ? Library.searchQuery : Library.playlistFilterQuery
         onTextChanged: {
             if (root.searching) {
@@ -319,7 +321,7 @@ Item {
             StyledMenuItem {
                 visible: !Library.selectedPlaylist.isLocal
                 height: visible ? implicitHeight : 0
-                text: qsTr("Open in Spotify")
+                text: qsTr("Open in %1").arg(Session.musicServiceName)
                 symbol: "open_in_new"
                 onTriggered: App.openUrl(root.playlistLink)
             }

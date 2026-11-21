@@ -166,7 +166,7 @@ LibraryStore::LibraryStore(SpotifySession *session, Settings *settings, ErrorCen
     // another service's library replaces this one's
     connect(m_session, &SpotifySession::musicServiceChanged, this, [this] {
         reset();
-        if (m_session->isLibraryConnected()) {
+        if (m_session->libraryAvailable()) {
             detach(loadInitialLibrary());
         }
     });
@@ -665,7 +665,7 @@ void LibraryStore::selectPlaylist(const Playlist &playlist)
         return;
     }
     setSongs(openedSongs);
-    if (!m_session->hasLibraryToken()) {
+    if (!m_session->canReadLibrary()) {
         return;
     }
     setLoading(m_loadingSongs, opened == nullptr);
@@ -713,7 +713,7 @@ void LibraryStore::selectAlbum(const Album &album)
     const QList<Song> *opened = m_openedAlbums.find(album.id);
     navigate({Page::Album, {}, album});
     m_albumSongs->setSongs(opened ? *opened : QList<Song> {});
-    if (!m_session->hasLibraryToken()) {
+    if (!m_session->canReadLibrary()) {
         return;
     }
     setLoading(m_loadingSongs, opened == nullptr);
@@ -753,7 +753,7 @@ void LibraryStore::selectArtist(const Artist &artist)
     m_artistAlbums->setItems(opened ? opened->albums : QList<Album> {});
     m_artistTopSongs->setSongs(opened ? opened->topSongs : QList<Song> {});
     m_errors->clear();
-    if (!m_session->hasLibraryToken()) {
+    if (!m_session->canReadLibrary()) {
         return;
     }
     setLoading(m_loadingArtist, opened == nullptr);
@@ -939,7 +939,7 @@ void LibraryStore::setSearchQuery(const QString &query)
     };
     if (trimmed.isEmpty() || searchIsCatchphrase()) {
         clearResults();
-    } else if (!m_session->hasLibraryToken()) {
+    } else if (!m_session->canReadLibrary()) {
         m_errors->show(QStringLiteral("Connect your Spotify library to search the catalog."));
     } else if (const auto link = parseSpotifyLink(trimmed)) {
         clearResults();
@@ -1031,11 +1031,11 @@ void LibraryStore::togglePinned(const Playlist &playlist)
 
 void LibraryStore::toggleSaved(const Song &song)
 {
-    if (!m_session->hasFullLibraryAccess()) {
+    if (!m_session->canChangeLibrary()) {
         m_errors->show(QStringLiteral("Reconnect your library once to enable saved songs and playlist editing."));
         return;
     }
-    if (!m_session->hasLibraryToken()) {
+    if (!m_session->canReadLibrary()) {
         m_errors->show(QStringLiteral("Connect your Spotify library to save songs."));
         return;
     }
@@ -1094,7 +1094,7 @@ QCoro::Task<> LibraryStore::runToggleSaved(Song song, bool shouldSave, quint64 g
 
 QCoro::Task<> LibraryStore::loadSavedStatuses(QList<Song> songs)
 {
-    if (m_session->libraryNeedsAuthorizationUpgrade() || !m_session->hasLibraryToken() || songs.isEmpty()) {
+    if (m_session->libraryNeedsUpgrade() || !m_session->canReadLibrary() || songs.isEmpty()) {
         co_return;
     }
     const int revision = m_savedStatusRevision;
@@ -1136,10 +1136,10 @@ QCoro::Task<> LibraryStore::loadSavedStatuses(QList<Song> songs)
 QCoro::Task<> LibraryStore::loadInitialLibrary()
 {
     // signed out of youtube music there is no library, only the catalog
-    if (!m_session->hasLibraryToken() || (m_session->webApi().isYouTube() && !m_session->isYouTubeSignedIn())) {
+    if (!m_session->canReadLibrary() || (m_session->webApi().isYouTube() && !m_session->isYouTubeSignedIn())) {
         co_return;
     }
-    if (!m_session->libraryNeedsAuthorizationUpgrade()) {
+    if (!m_session->libraryNeedsUpgrade()) {
         try {
             const Profile profile = co_await m_session->withLibraryAccessToken<Profile>(
                 [this](QString accessToken) { return m_session->webApi().profile(accessToken); });
@@ -1151,14 +1151,14 @@ QCoro::Task<> LibraryStore::loadInitialLibrary()
         }
     }
     co_await loadPlaylists();
-    if (!m_session->libraryNeedsAuthorizationUpgrade()) {
+    if (!m_session->libraryNeedsUpgrade()) {
         co_await loadHome();
     }
 }
 
 QCoro::Task<> LibraryStore::loadPlaylists()
 {
-    if (!m_session->hasLibraryToken() || m_loadingPlaylists) {
+    if (!m_session->canReadLibrary() || m_loadingPlaylists) {
         co_return;
     }
     setLoading(m_loadingPlaylists, true);
@@ -1184,7 +1184,7 @@ void LibraryStore::retryLoadingPlaylists()
 
 QCoro::Task<> LibraryStore::loadHome()
 {
-    if (m_session->libraryNeedsAuthorizationUpgrade() || !m_session->hasLibraryToken() || m_loadingHome) {
+    if (m_session->libraryNeedsUpgrade() || !m_session->canReadLibrary() || m_loadingHome) {
         co_return;
     }
     setLoading(m_loadingHome, true);
@@ -1209,11 +1209,11 @@ QCoro::Task<> LibraryStore::loadHome()
 
 QCoro::Task<> LibraryStore::loadSavedSongs()
 {
-    if (m_session->libraryNeedsAuthorizationUpgrade()) {
+    if (m_session->libraryNeedsUpgrade()) {
         m_errors->show(QStringLiteral("Reconnect your library once to enable saved songs and playlist editing."));
         co_return;
     }
-    if (!m_session->hasLibraryToken() || m_loadingSavedSongs) {
+    if (!m_session->canReadLibrary() || m_loadingSavedSongs) {
         co_return;
     }
     setLoading(m_loadingSavedSongs, true);
@@ -1311,11 +1311,11 @@ void LibraryStore::addToPlaylist(const Song &song, const Playlist &playlist)
 
 QCoro::Task<> LibraryStore::runAdd(Song song, Playlist playlist)
 {
-    if (!m_session->hasFullLibraryAccess()) {
+    if (!m_session->canChangeLibrary()) {
         m_errors->show(kReconnectToEdit);
         co_return;
     }
-    if (!m_session->hasLibraryToken()) {
+    if (!m_session->canReadLibrary()) {
         m_errors->show(QStringLiteral("Connect your Spotify library to edit playlists."));
         co_return;
     }
@@ -1363,11 +1363,11 @@ void LibraryStore::removeFromLocalPlaylist(const Song &song, const Playlist &pla
 
 QCoro::Task<> LibraryStore::runRemove(Song song, Playlist playlist)
 {
-    if (!m_session->hasFullLibraryAccess()) {
+    if (!m_session->canChangeLibrary()) {
         m_errors->show(kReconnectToEdit);
         co_return;
     }
-    if (!playlist.canModify(m_profile.id) || !m_session->hasLibraryToken()) {
+    if (!playlist.canModify(m_profile.id) || !m_session->canReadLibrary()) {
         co_return;
     }
     try {
@@ -1409,7 +1409,7 @@ void LibraryStore::moveSongs(int from, int count, int to)
     // a playlist made here is the person's own, and spotify has no say in it
     const Playlist playlist = selectedPlaylist();
     const bool local = playlist.isLocal();
-    if (!local && !m_session->hasFullLibraryAccess()) {
+    if (!local && !m_session->canChangeLibrary()) {
         m_errors->show(kReconnectToEdit);
         return;
     }
@@ -1525,11 +1525,11 @@ void LibraryStore::deleteLocalPlaylist(const Playlist &playlist)
 
 QCoro::Task<> LibraryStore::runDelete(Playlist playlist)
 {
-    if (!m_session->hasFullLibraryAccess()) {
+    if (!m_session->canChangeLibrary()) {
         m_errors->show(kReconnectToEdit);
         co_return;
     }
-    if (!m_session->hasLibraryToken()) {
+    if (!m_session->canReadLibrary()) {
         m_errors->show(QStringLiteral("Connect your Spotify library to delete playlists."));
         co_return;
     }
@@ -1595,12 +1595,12 @@ QCoro::Task<> LibraryStore::runSave(bool isNew, QString name, QString descriptio
         setLoading(m_savingPlaylist, false);
         emit playlistSaveFinished(ok);
     };
-    if (!m_session->hasFullLibraryAccess()) {
+    if (!m_session->canChangeLibrary()) {
         m_errors->show(kReconnectToEdit);
         finish(false);
         co_return;
     }
-    if (!m_session->hasLibraryToken()) {
+    if (!m_session->canReadLibrary()) {
         m_errors->show(isNew ? QStringLiteral("Connect your Spotify library to create playlists.") : QString());
         finish(false);
         co_return;
@@ -1665,7 +1665,7 @@ QCoro::Task<> LibraryStore::runSave(bool isNew, QString name, QString descriptio
 
 QCoro::Task<bool> LibraryStore::uploadCover(Playlist playlist, QByteArray jpeg)
 {
-    if (!playlist.canModify(m_profile.id) || !m_session->hasLibraryToken()) {
+    if (!playlist.canModify(m_profile.id) || !m_session->canReadLibrary()) {
         co_return false;
     }
     try {

@@ -3,9 +3,12 @@ app-id: dev.shredos.Swiftify
 runtime: org.kde.Platform
 runtime-version: '6.10'
 sdk: org.kde.Sdk
+# QtWebEngine, for youtube music's sign-in window (src/spotify/YouTubeLogin)
+base: io.qt.qtwebengine.BaseApp
+base-version: '6.10'
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-  # yt-dlp runs youtube's player javascript in node to fetch youtube music's audio
+  # node for yt-dlp, the fallback for songs youtube's direct client is refused
   - org.freedesktop.Sdk.Extension.node24
 command: swiftify
 rename-desktop-file: swiftify.desktop
@@ -33,6 +36,8 @@ finish-args:
   - --filesystem=xdg-run/app/com.discordapp.Discord:create
   # what a native install keeps in ~/.config/Swiftify is brought over by
   # packaging/flatpak/README.md's steps, not by the app: no home access
+cleanup-commands:
+  - /app/cleanup-BaseApp.sh
 cleanup:
   - /include
   - /lib/cmake
@@ -67,8 +72,8 @@ modules:
         tag: v0.12.0
         commit: c100a96f0b98fda9c19e842764033f7e65411468
 
-  # fetches youtube music's audio (spotify-core src/music/youtube.rs); the
-  # runtime's python runs it. update the pin with yt-dlp's releases
+  # fetches only what youtube's direct client is refused (age-gated and
+  # made-for-kids songs, src/music/youtube.rs); the runtime's python runs it
   - name: yt-dlp
     buildsystem: simple
     build-commands:

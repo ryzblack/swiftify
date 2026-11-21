@@ -29,6 +29,7 @@ use serde_json::{Value, json};
 
 pub mod spotify;
 pub mod youtube;
+pub mod youtube_stream;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", default)]

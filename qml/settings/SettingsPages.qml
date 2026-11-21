@@ -610,14 +610,19 @@ Item {
 
                         StyledText {
                             width: parent.width
-                            text: Library.profileName.length > 0 ? Library.profileName : "Spotify"
+                            text: Library.profileName.length > 0 ? Library.profileName : Session.musicServiceName
                             elide: Text.ElideRight
                             font.pixelSize: Appearance.fontSize.larger
                             font.weight: Font.DemiBold
                         }
                         StyledText {
                             width: parent.width
-                            text: Session.libraryConnected && Session.connected ? qsTr("Library and playback connected")
+                            // the chosen service's own state: one service's login never stands in for the other's
+                            text: Session.musicService === "youtube"
+                                ? (Session.youTubeState === "connected" ? qsTr("Signed in to YouTube Music")
+                                   : Session.youTubeState === "expired" ? qsTr("YouTube Music sign-in expired, sign in again")
+                                   : qsTr("Not signed in, search and playback only"))
+                                : Session.libraryConnected && Session.connected ? qsTr("Library and playback connected")
                                 : Session.libraryConnected ? qsTr("Library connected")
                                 : Session.connected ? qsTr("Playback connected") : qsTr("Not signed in")
                             elide: Text.ElideRight
@@ -637,12 +642,15 @@ Item {
                         colBackground: Appearance.colors.error
                         colBackgroundHover: Appearance.colors.errorHover
                         labelColor: Appearance.colors.onError
-                        enabled: Session.libraryConnected || Session.connected
-                        onClicked: logOutDialog.open()
+                        enabled: Session.musicService === "youtube" ? Session.youTubeState !== "anonymous"
+                                                                    : Session.libraryConnected || Session.connected
+                        onClicked: Session.musicService === "youtube" ? Session.signOutOfYouTube() : logOutDialog.open()
                     }
                 }
                 NoteText {
-                    text: qsTr("forgets both logins on this computer, local files stay of course")
+                    text: Session.musicService === "youtube"
+                          ? qsTr("forgets the YouTube Music login on this computer, spotify's stays as it is")
+                          : qsTr("forgets both logins on this computer, local files stay of course")
                 }
 
                 StyledDialog {
@@ -690,14 +698,15 @@ Item {
                 StatusRow {
                     label: "YouTube Music"
                     value: Session.youTubeBusy ? qsTr("Signing in…")
-                        : Session.youTubeSignedIn ? qsTr("Signed in") : qsTr("Not signed in")
-                    good: Session.youTubeSignedIn
+                        : Session.youTubeState === "connected" ? qsTr("Signed in")
+                        : Session.youTubeState === "expired" ? qsTr("Sign-in expired") : qsTr("Not signed in")
+                    good: Session.youTubeState === "connected"
                 }
                 OutlinedTextField {
                     id: youTubeCookies
                     x: 8
                     width: Math.min(460, parent.width - 16)
-                    visible: !Session.youTubeSignedIn
+                    visible: !Session.youTubeBrowserLogin && Session.youTubeState !== "connected"
                     placeholder: qsTr("Cookie header or cookies.txt from music.youtube.com")
                     onAccepted: {
                         Session.signInToYouTube(text)
@@ -711,18 +720,23 @@ Item {
                     topPadding: 4
 
                     TextButton {
-                        visible: !Session.youTubeSignedIn
+                        visible: Session.youTubeState !== "connected"
                         variant: TextButton.Tonal
                         symbol: "login"
-                        text: qsTr("Sign In")
-                        enabled: !Session.youTubeBusy && youTubeCookies.text.trim().length > 0
+                        text: Session.youTubeState === "expired" ? qsTr("Sign In Again") : qsTr("Sign In")
+                        enabled: !Session.youTubeBusy
+                                 && (Session.youTubeBrowserLogin || youTubeCookies.text.trim().length > 0)
                         onClicked: {
-                            Session.signInToYouTube(youTubeCookies.text)
-                            youTubeCookies.text = ""
+                            if (Session.youTubeBrowserLogin) {
+                                Session.beginYouTubeLogin()
+                            } else {
+                                Session.signInToYouTube(youTubeCookies.text)
+                                youTubeCookies.text = ""
+                            }
                         }
                     }
                     TextButton {
-                        visible: Session.youTubeSignedIn
+                        visible: Session.youTubeState !== "anonymous"
                         variant: TextButton.Tonal
                         symbol: "logout"
                         text: qsTr("Sign Out of YouTube Music")
@@ -731,11 +745,12 @@ Item {
                     }
                 }
                 NoteText {
-                    text: qsTr("search and playback work signed out. your library, likes, playlists and history need the cookies of a signed-in music.youtube.com tab, kept in your keychain. songs you play are added to your YouTube history so it follows you to other devices. playback needs yt-dlp")
+                    text: qsTr("search and playback work signed out. signing in opens your google sign-in in a window of swiftify; your library, likes, playlists and history then come along, the login is kept in your keychain, and songs you play join your youtube history on every device")
                 }
             }
 
             ContentSection {
+                visible: Session.musicService === "spotify"
                 title: qsTr("Playback")
                 symbol: "play_circle"
 
@@ -764,6 +779,7 @@ Item {
             }
 
             ContentSection {
+                visible: Session.musicService === "spotify"
                 title: qsTr("Library")
                 symbol: "library_music"
 

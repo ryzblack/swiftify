@@ -522,11 +522,8 @@ impl YouTube {
         }
         std::fs::create_dir_all(dir)
             .map_err(|failure| format!("could not make the YouTube audio folder: {failure}"))?;
-        // yt-dlp names the file from the template's %(ext)s, always m4a here
         let partial = dir.join(format!("{video_id}.download.m4a"));
-        if let Err(failure) =
-            fetch_audio(video_id, &dir.join(format!("{video_id}.download.%(ext)s"))).await
-        {
+        if let Err(failure) = self.fetch_audio(video_id, dir, &partial).await {
             let _ = std::fs::remove_file(&partial);
             return Err(failure);
         }
@@ -534,6 +531,39 @@ impl YouTube {
             .map_err(|failure| format!("could not keep the YouTube audio: {failure}"))?;
         prune(dir, limit, &path);
         Ok(path)
+    }
+}
+
+impl YouTube {
+    /// the audio, from innertube (youtube_stream). only what that client is
+    /// refused (age-gated or made-for-kids songs) goes to yt-dlp, when it is
+    /// installed: it runs youtube's player javascript, which this does not
+    async fn fetch_audio(
+        &self,
+        video_id: &str,
+        dir: &Path,
+        partial: &Path,
+    ) -> std::result::Result<(), String> {
+        use super::youtube_stream::{self, StreamError, VISIONOS};
+        let visitor_data = self
+            .query()
+            .map_err(|failure| failure.message)?
+            .get_visitor_data(false)
+            .await
+            .map_err(|failure| error(failure).message)?;
+        match youtube_stream::resolve(&self.http, &VISIONOS, video_id, &visitor_data).await {
+            Ok(stream) => youtube_stream::download(&self.http, &VISIONOS, &stream, partial).await,
+            Err(StreamError::Unplayable(reason)) => {
+                ytdlp_audio(video_id, &dir.join(format!("{video_id}.download.%(ext)s")))
+                    .await
+                    .map_err(|fallback| {
+                        format!("YouTube Music will not play this song here ({reason}). {fallback}")
+                    })
+            }
+            Err(StreamError::Failed(failure)) => {
+                Err(format!("could not reach YouTube Music's player: {failure}"))
+            }
+        }
     }
 }
 
@@ -556,12 +586,10 @@ fn template(path: &Path) -> String {
     format!("{folder}/{name}")
 }
 
-/// youtube's audio, fetched by yt-dlp to the template `path`. youtube hands its streams
-/// only to clients that pass its proof-of-origin checks and run its player's
-/// javascript, which change every few weeks; yt-dlp follows them, and the
-/// catalog calls here stay on innertube. `--no-config` keeps a person's own
-/// yt-dlp settings (cookies, proxies, hooks) out of it.
-async fn fetch_audio(video_id: &str, path: &Path) -> std::result::Result<(), String> {
+/// the fallback for songs innertube's direct client is refused: yt-dlp, to the
+/// template `path`. `--no-config` keeps a person's own yt-dlp settings
+/// (cookies, proxies, hooks) out of it
+async fn ytdlp_audio(video_id: &str, path: &Path) -> std::result::Result<(), String> {
     let output = tokio::process::Command::new(yt_dlp())
         .args([
             "--no-config",
@@ -580,9 +608,7 @@ async fn fetch_audio(video_id: &str, path: &Path) -> std::result::Result<(), Str
         .kill_on_drop(true)
         .output()
         .await
-        .map_err(|failure| {
-            format!("YouTube Music playback needs yt-dlp, which could not be started: {failure}")
-        })?;
+        .map_err(|_| "Installing yt-dlp lets Swiftify play such songs.".to_owned())?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
@@ -1173,6 +1199,12 @@ impl MusicService for YouTube {
                 Ok(json!({"signedIn": self.signed_in()}))
             }
             "status" => Ok(json!({"signedIn": self.signed_in()})),
+            // asks youtube whether it still takes the saved cookies
+            "checkLogin" => match self.client()?.user_auth_check_cookie().await {
+                Ok(()) => Ok(json!({"valid": true})),
+                Err(PipeError::Auth(_)) => Ok(json!({"valid": false})),
+                Err(other) => Err(error(other)),
+            },
             // the Cookie header of a signed-in music.youtube.com tab, or a cookies.txt
             "signIn" => {
                 let cookie = text("cookie");

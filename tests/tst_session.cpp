@@ -779,6 +779,19 @@ private slots:
 
     // spotify's json itself is read in the rust core now: its cases are in
     // spotify-core/src/music/spotify.rs (descriptions, playability, relinking)
+    void youTubeCookiesAreTakenOnceTheyHoldAnAccount()
+    {
+        using Cookies = QList<std::pair<QString, QString>>;
+        QCOMPARE(youTubeCookieHeader(Cookies {{QStringLiteral("VISITOR_INFO1_LIVE"), QStringLiteral("v")}}), QString());
+        // the latest value of a cookie set twice, in the order first seen
+        QCOMPARE(youTubeCookieHeader(Cookies {{QStringLiteral("HSID"), QStringLiteral("old")},
+                                              {QStringLiteral("SAPISID"), QStringLiteral("s")},
+                                              {QStringLiteral("HSID"), QStringLiteral("new")}}),
+                 QStringLiteral("HSID=new; SAPISID=s"));
+        QCOMPARE(youTubeCookieHeader(Cookies {{QStringLiteral("__Secure-3PAPISID"), QStringLiteral("x")}}),
+                 QStringLiteral("__Secure-3PAPISID=x"));
+    }
+
     void aSongKeepsWhetherItWillPlay()
     {
         Song blocked;

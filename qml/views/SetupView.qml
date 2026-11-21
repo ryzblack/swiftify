@@ -26,8 +26,10 @@ import Swiftify
 Flickable {
     id: root
 
-    /// the service being set up, chosen at the top
-    property bool youTube: false
+    /// the service being set up, chosen first
+    property bool youTube: Session.musicService === "youtube"
+    /// past the choice, on the chosen service's way in
+    property bool chosen: false
 
     // pages run up under the top bar, which floats over them with no
     // background of its own; they start below it
@@ -112,6 +114,7 @@ Flickable {
         }
 
         SegmentedControl {
+            visible: !root.chosen
             anchors.horizontalCenter: parent.horizontalCenter
             segmentHeight: 36
             currentIndex: root.youTube ? 1 : 0
@@ -122,42 +125,70 @@ Flickable {
             onActivated: (index) => root.youTube = index === 1
         }
 
-        // youtube music: no developer app, the cookies of a signed-in tab or none
+        StyledText {
+            visible: !root.chosen
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            text: root.youTube
+                  ? qsTr("Search, play and keep your library from YouTube Music. Signing in is optional.")
+                  : qsTr("Play your Spotify library. Needs Spotify Premium and a Client ID from your own developer app.")
+            color: Appearance.colors.onSurfaceVariant
+        }
+
+        TextButton {
+            visible: !root.chosen
+            anchors.horizontalCenter: parent.horizontalCenter
+            symbol: "arrow_forward"
+            text: qsTr("Continue")
+            onClicked: root.chosen = true
+        }
+
+        // youtube music: signing in is the account's own google sign-in, in a
+        // window of the app; signed out it searches and plays all the same
         Column {
             width: parent.width
             spacing: 14
-            visible: root.youTube
+            visible: root.chosen && root.youTube
 
             StyledText {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                text: qsTr("YouTube Music needs no developer app. Search and playback work signed out; sign in to see your library, likes, playlists and history.")
+                text: Session.youTubeBrowserLogin
+                      ? qsTr("Sign in with your Google account to see your library, likes, playlists and history. The sign-in opens in a window of Swiftify and is kept in your keychain.")
+                      : qsTr("Sign in to see your library, likes, playlists and history.")
                 color: Appearance.colors.onSurfaceVariant
             }
-            Step {
-                number: 1
-                title: qsTr("Copy your YouTube Music cookies")
-                detail: qsTr("In a browser signed in to music.youtube.com, open the developer tools, pick any request under Network and copy its Cookie header. A cookies.txt export works too.")
-            }
-            TextButton {
-                x: 38
-                variant: TextButton.Text
-                symbol: "open_in_new"
-                text: qsTr("Open YouTube Music")
-                onClicked: App.openUrl("https://music.youtube.com")
-            }
-            Step {
-                number: 2
-                title: qsTr("Paste them here")
-                detail: qsTr("They are kept in your keychain, never in a file.")
-            }
-            OutlinedTextField {
-                id: youTubeCookies
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.min(460, parent.width)
-                placeholder: qsTr("Cookie header or cookies.txt from music.youtube.com")
-                onAccepted: if (signInButton.enabled) signInButton.clicked()
+            Column {
+                visible: !Session.youTubeBrowserLogin
+                width: parent.width
+                spacing: 14
+
+                Step {
+                    number: 1
+                    title: qsTr("Copy your YouTube Music cookies")
+                    detail: qsTr("In a browser signed in to music.youtube.com, open the developer tools, pick any request under Network and copy its Cookie header. A cookies.txt export works too.")
+                }
+                TextButton {
+                    x: 38
+                    variant: TextButton.Text
+                    symbol: "open_in_new"
+                    text: qsTr("Open YouTube Music")
+                    onClicked: App.openUrl("https://music.youtube.com")
+                }
+                Step {
+                    number: 2
+                    title: qsTr("Paste them here")
+                    detail: qsTr("They are kept in your keychain, never in a file.")
+                }
+                OutlinedTextField {
+                    id: youTubeCookies
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.min(460, parent.width)
+                    placeholder: qsTr("Cookie header or cookies.txt from music.youtube.com")
+                    onAccepted: if (signInButton.enabled) signInButton.clicked()
+                }
             }
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -167,11 +198,16 @@ Flickable {
                     id: signInButton
                     symbol: "login"
                     text: qsTr("Sign In")
-                    enabled: !Session.youTubeBusy && youTubeCookies.text.trim().length > 0
+                    enabled: !Session.youTubeBusy
+                             && (Session.youTubeBrowserLogin || youTubeCookies.text.trim().length > 0)
                     onClicked: {
-                        Session.signInToYouTube(youTubeCookies.text)
-                        youTubeCookies.text = ""
                         Settings.musicService = "youtube"
+                        if (Session.youTubeBrowserLogin) {
+                            Session.beginYouTubeLogin()
+                        } else {
+                            Session.signInToYouTube(youTubeCookies.text)
+                            youTubeCookies.text = ""
+                        }
                     }
                 }
                 TextButton {
@@ -183,7 +219,7 @@ Flickable {
         }
 
         StyledText {
-            visible: !root.youTube
+            visible: root.chosen && !root.youTube
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
@@ -192,7 +228,7 @@ Flickable {
         }
 
         Column {
-            visible: !root.youTube
+            visible: root.chosen && !root.youTube
             width: parent.width
             spacing: 14
 
@@ -245,7 +281,7 @@ Flickable {
         }
 
         OutlinedTextField {
-            visible: !root.youTube
+            visible: root.chosen && !root.youTube
             anchors.horizontalCenter: parent.horizontalCenter
             width: Math.min(460, parent.width)
             placeholder: qsTr("Spotify Client ID")
@@ -257,7 +293,7 @@ Flickable {
         // the screen stays until both are connected (UiState.needsSetup):
         // each button says when its half is done, and the next one leads
         Row {
-            visible: !root.youTube
+            visible: root.chosen && !root.youTube
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: 12
 
@@ -278,7 +314,7 @@ Flickable {
         }
 
         StyledText {
-            visible: !root.youTube
+            visible: root.chosen && !root.youTube
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
@@ -291,6 +327,15 @@ Flickable {
             font.pixelSize: Appearance.fontSize.smaller
             color: Session.libraryConnected !== Session.connected ? Appearance.colors.primary
                                                                   : Appearance.colors.onSurfaceVariant
+        }
+
+        TextButton {
+            visible: root.chosen
+            anchors.horizontalCenter: parent.horizontalCenter
+            variant: TextButton.Text
+            symbol: "arrow_back"
+            text: qsTr("Choose Another Service")
+            onClicked: root.chosen = false
         }
     }
 }
