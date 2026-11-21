@@ -83,6 +83,8 @@ impl CacheStorage for StateStorage {
 
 pub struct YouTube {
     state: Arc<State>,
+    /// the signed-in account's visitor data, for the player
+    account_visitor: Mutex<Option<String>>,
     /// the login last handed to the front end
     reported: Mutex<Option<String>>,
     client: RwLock<Option<RustyPipe>>,
@@ -93,6 +95,7 @@ pub fn service() -> &'static YouTube {
     static SERVICE: OnceLock<YouTube> = OnceLock::new();
     SERVICE.get_or_init(|| YouTube {
         state: Arc::default(),
+        account_visitor: Mutex::new(None),
         reported: Mutex::new(None),
         client: RwLock::new(None),
         http: reqwest::Client::builder()
@@ -351,6 +354,7 @@ impl YouTube {
     /// what the front end kept from an earlier run. the client is built again
     /// from it, as rustypipe reads its cache only when it is built
     fn restore_state(&self, state: &str) {
+        self.forget_account_visitor();
         if let Ok(mut reported) = self.reported.lock() {
             *reported = Some(state.to_owned());
         }
@@ -523,7 +527,7 @@ impl YouTube {
         std::fs::create_dir_all(dir)
             .map_err(|failure| format!("could not make the YouTube audio folder: {failure}"))?;
         let partial = dir.join(format!("{video_id}.download.m4a"));
-        if let Err(failure) = self.fetch_audio(video_id, dir, &partial).await {
+        if let Err(failure) = self.fetch_audio(video_id, &partial).await {
             let _ = std::fs::remove_file(&partial);
             return Err(failure);
         }
@@ -535,88 +539,97 @@ impl YouTube {
 }
 
 impl YouTube {
-    /// the audio, from innertube (youtube_stream). only what that client is
-    /// refused (age-gated or made-for-kids songs) goes to yt-dlp, when it is
-    /// installed: it runs youtube's player javascript, which this does not
-    async fn fetch_audio(
-        &self,
-        video_id: &str,
-        dir: &Path,
-        partial: &Path,
-    ) -> std::result::Result<(), String> {
+    /// the audio, from innertube (youtube_stream), with the visitor data the
+    /// player wants: the account's when signed in, else rustypipe's, and the
+    /// song's watch page's once more when youtube turns the first away.
+    /// nothing runs outside the app
+    async fn fetch_audio(&self, video_id: &str, partial: &Path) -> std::result::Result<(), String> {
         use super::youtube_stream::{self, StreamError, VISIONOS};
-        let visitor_data = self
-            .query()
-            .map_err(|failure| failure.message)?
-            .get_visitor_data(false)
-            .await
-            .map_err(|failure| error(failure).message)?;
-        match youtube_stream::resolve(&self.http, &VISIONOS, video_id, &visitor_data).await {
-            Ok(stream) => youtube_stream::download(&self.http, &VISIONOS, &stream, partial).await,
-            Err(StreamError::Unplayable(reason)) => {
-                ytdlp_audio(video_id, &dir.join(format!("{video_id}.download.%(ext)s")))
+        log::info!(target: "ytmusic", "YTMusic: Resolving audio source video={video_id}");
+        let cookie = self.cookie();
+        let first = match &cookie {
+            Some(cookie) => self.account_visitor_data(cookie).await,
+            None => match self.query() {
+                Ok(query) => query
+                    .get_visitor_data(false)
                     .await
-                    .map_err(|fallback| {
-                        format!("YouTube Music will not play this song here ({reason}). {fallback}")
-                    })
+                    .map_err(|failure| error(failure).message),
+                Err(failure) => Err(failure.message),
+            },
+        };
+        let mut attempt = match first {
+            Ok(visitor_data) => {
+                youtube_stream::resolve(&self.http, &VISIONOS, video_id, &visitor_data).await
             }
+            Err(failure) => Err(StreamError::Failed(failure)),
+        };
+        if let Err(first_failure) = &attempt {
+            log::warn!(target: "ytmusic", "YTMusic: first attempt refused video={video_id}: {first_failure:?}");
+            let watch = format!("{ORIGIN}/watch?v={video_id}");
+            attempt = match youtube_stream::page_visitor_data(&self.http, &watch, cookie.as_deref())
+                .await
+            {
+                Ok(visitor_data) => {
+                    youtube_stream::resolve(&self.http, &VISIONOS, video_id, &visitor_data).await
+                }
+                Err(page_failure) => Err(page_failure),
+            };
+        }
+        let result = match attempt {
+            Ok(stream) => youtube_stream::download(&self.http, &VISIONOS, &stream, partial).await,
+            Err(StreamError::Unplayable(reason)) => Err(refusal(&reason, cookie.is_some())),
             Err(StreamError::Failed(failure)) => {
                 Err(format!("could not reach YouTube Music's player: {failure}"))
             }
+        };
+        if let Err(failure) = &result {
+            log::warn!(target: "ytmusic", "YTMusic: Playback failed video={video_id}: {failure}");
+        }
+        result
+    }
+
+    /// the signed-in account's visitor data, read once from music.youtube.com
+    /// with its cookies; signing in or out forgets it
+    async fn account_visitor_data(&self, cookie: &str) -> std::result::Result<String, String> {
+        if let Some(known) = self
+            .account_visitor
+            .lock()
+            .ok()
+            .and_then(|known| known.clone())
+        {
+            return Ok(known);
+        }
+        let fresh = super::youtube_stream::page_visitor_data(
+            &self.http,
+            &format!("{ORIGIN}/"),
+            Some(cookie),
+        )
+        .await
+        .map_err(|failure| format!("{failure:?}"))?;
+        if let Ok(mut known) = self.account_visitor.lock() {
+            *known = Some(fresh.clone());
+        }
+        Ok(fresh)
+    }
+
+    fn forget_account_visitor(&self) {
+        if let Ok(mut known) = self.account_visitor.lock() {
+            *known = None;
         }
     }
 }
 
-/// the program that fetches youtube's audio: `SWIFTIFY_YTDLP`, else yt-dlp on the path
-fn yt_dlp() -> std::ffi::OsString {
-    std::env::var_os("SWIFTIFY_YTDLP").unwrap_or_else(|| "yt-dlp".into())
-}
-
-/// `path` as a yt-dlp output template: its folder's own % written as %%,
-/// the file name's %(ext)s kept
-fn template(path: &Path) -> String {
-    let folder = path
-        .parent()
-        .map(|folder| folder.to_string_lossy().replace('%', "%%"))
-        .unwrap_or_default();
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    format!("{folder}/{name}")
-}
-
-/// the fallback for songs innertube's direct client is refused: yt-dlp, to the
-/// template `path`. `--no-config` keeps a person's own yt-dlp settings
-/// (cookies, proxies, hooks) out of it
-async fn ytdlp_audio(video_id: &str, path: &Path) -> std::result::Result<(), String> {
-    let output = tokio::process::Command::new(yt_dlp())
-        .args([
-            "--no-config",
-            "--no-playlist",
-            "--no-part",
-            "--quiet",
-            "--no-progress",
-            "--no-warnings",
-        ])
-        .args(["--js-runtimes", "deno", "--js-runtimes", "node"])
-        // aac in an mp4, which the core's decoder reads; opus comes in webm, which it does not
-        .args(["-f", "140/bestaudio[ext=m4a]", "-o"])
-        // -o takes a template: a % in the folder's name is written as %%
-        .arg(template(path))
-        .arg(format!("{ORIGIN}/watch?v={video_id}"))
-        .kill_on_drop(true)
-        .output()
-        .await
-        .map_err(|_| "Installing yt-dlp lets Swiftify play such songs.".to_owned())?;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "YouTube Music would not hand over this song: {}",
-            detail.trim()
-        ));
+/// what youtube's refusal means to the person, in its own words too
+fn refusal(reason: &str, signed_in: bool) -> String {
+    match (reason.contains("not a bot"), signed_in) {
+        (true, false) => format!(
+            "YouTube asks to confirm this is not a bot ({reason}). Sign in to YouTube Music under Settings, Account, Music Service, then play the song again."
+        ),
+        (true, true) => format!(
+            "YouTube asks to confirm this is not a bot even signed in ({reason}). Sign in again under Settings, Account, Music Service, or try again later."
+        ),
+        _ => format!("YouTube Music will not play this song here: {reason}"),
     }
-    Ok(())
 }
 
 /// the login in rustypipe's cache, as a cache rustypipe reads back
@@ -1215,6 +1228,7 @@ impl MusicService for YouTube {
                     client.user_auth_set_cookie(cookie.trim()).await
                 };
                 result.map_err(error)?;
+                self.forget_account_visitor();
                 Ok(json!({"signedIn": self.signed_in()}))
             }
             "signOut" => {
@@ -1222,6 +1236,7 @@ impl MusicService for YouTube {
                     .user_auth_remove_cookie()
                     .await
                     .map_err(error)?;
+                self.forget_account_visitor();
                 Ok(json!({"signedIn": false}))
             }
             "reportPlayback" => self.report_playback(id_of(&text("uri"))).await,
@@ -1359,10 +1374,15 @@ mod tests {
     }
 
     #[test]
-    fn templates_escape_only_the_folder() {
+    fn refusals_say_what_to_do() {
+        assert!(
+            refusal("Sign in to confirm you're not a bot", false)
+                .contains("Sign in to YouTube Music")
+        );
+        assert!(refusal("Sign in to confirm you're not a bot", true).contains("even signed in"));
         assert_eq!(
-            template(Path::new("/c/100%/x.download.%(ext)s")),
-            "/c/100%%/x.download.%(ext)s"
+            refusal("Video unavailable", false),
+            "YouTube Music will not play this song here: Video unavailable"
         );
     }
 
@@ -1396,6 +1416,7 @@ mod tests {
     fn state_is_handed_out_once_per_change() {
         let youtube = YouTube {
             state: Arc::default(),
+            account_visitor: Mutex::new(None),
             reported: Mutex::new(None),
             client: RwLock::new(None),
             http: reqwest::Client::new(),
@@ -1443,6 +1464,23 @@ mod tests {
                     .map(|value| value["lines"].as_array().map_or(0, Vec::len))
                     .unwrap_or(0)
             );
+
+            // the second way in: the song's watch page's own visitor data
+            let watch = format!("{ORIGIN}/watch?v={}", id_of(&first.uri));
+            let page_visitor =
+                crate::music::youtube_stream::page_visitor_data(&youtube.http, &watch, None)
+                    .await
+                    .unwrap();
+            let stream = crate::music::youtube_stream::resolve(
+                &youtube.http,
+                &crate::music::youtube_stream::VISIONOS,
+                id_of(&first.uri),
+                &page_visitor,
+            )
+            .await
+            .unwrap();
+            println!("watch-page stream: {} bytes, {}", stream.size, stream.mime);
+            assert!(stream.size > 500_000);
 
             let dir = std::env::temp_dir().join("swiftify-youtube-live");
             let path = youtube

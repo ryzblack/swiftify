@@ -8,8 +8,6 @@ base: io.qt.qtwebengine.BaseApp
 base-version: '6.10'
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-  # node for yt-dlp, the fallback for songs youtube's direct client is refused
-  - org.freedesktop.Sdk.Extension.node24
 command: swiftify
 rename-desktop-file: swiftify.desktop
 rename-icon: swiftify
@@ -71,18 +69,6 @@ modules:
         url: https://github.com/qcoro/qcoro.git
         tag: v0.12.0
         commit: c100a96f0b98fda9c19e842764033f7e65411468
-
-  # fetches only what youtube's direct client is refused (age-gated and
-  # made-for-kids songs, src/music/youtube.rs); the runtime's python runs it
-  - name: yt-dlp
-    buildsystem: simple
-    build-commands:
-      - install -Dm755 yt-dlp /app/bin/yt-dlp
-      - install -Dm755 /usr/lib/sdk/node24/bin/node /app/bin/node
-    sources:
-      - type: file
-        url: https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp
-        sha256: e51e69e89489f199530f13d32a4342da3ddb2cf34842f364603a066db05afbf3
 
   - name: swiftify
     # explicit commands: the fonts must be in the build folder before cmake

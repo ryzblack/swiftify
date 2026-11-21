@@ -24,9 +24,10 @@ history on other devices: spotify keeps its recently played itself, and youtube 
 added to the account's youtube history the way youtube's own player does. there is nothing to
 sync and no third party: your account carries it.
 
-youtube's audio comes straight from youtube music's player. yt-dlp is asked only for songs that
-player refuses (age-gated, made for kids), when it is installed, with `--no-config` so your own
-yt-dlp settings (cookies, proxies, hooks) never apply.
+youtube's audio comes straight from youtube music's player, asked by the app itself; no external
+program runs. signed in, the player is asked with the account's visitor id (read from
+music.youtube.com with its cookies); the cookies themselves go only to youtube's own pages and api.
+the logs name the song's public id and the stage reached, never cookies, tokens or stream urls.
 
 signing in to youtube music opens google's sign-in in a window of swiftify with a private
 profile: nothing of it is written to disk, and only the youtube cookies it ends with are kept, in

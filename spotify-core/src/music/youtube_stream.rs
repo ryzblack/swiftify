@@ -21,7 +21,9 @@
 //! (MetrolistGroup/innertubex's PlaybackClientCatalog, VISIONOS_0_1: "fastest
 //! client for normal and non-age-gated explicit audio, signed in and out",
 //! October 2026), given the visitor data youtube's own pages carry. no
-//! signature to decipher, no proof-of-origin token. when youtube changes
+//! signature to decipher, no proof-of-origin token. the visitor data must be
+//! the account's when it is signed in: anonymous visitor data from a busy
+//! address gets "Sign in to confirm you're not a bot". when youtube changes
 //! clients again, this file is the one to change.
 
 use std::path::Path;
@@ -55,6 +57,9 @@ pub const VISIONOS: ClientProfile = ClientProfile {
 };
 
 const PLAYER: &str = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false";
+/// the browser youtube music's pages are fetched as, for their visitor data
+const PAGE_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0";
 const ORIGIN: &str = "https://music.youtube.com";
 /// googlevideo slows a stream fetched in one request down to playback speed
 const CHUNK: u64 = 9 * 1024 * 1024;
@@ -72,6 +77,48 @@ pub enum StreamError {
 pub struct Stream {
     pub url: String,
     pub size: u64,
+    /// its mime type and codecs, e.g. audio/mp4; codecs="mp4a.40.2"
+    pub mime: String,
+}
+
+/// the visitor data a youtube page carries in its config (VISITOR_DATA)
+pub fn visitor_data_in_page(html: &str) -> Option<String> {
+    ["\"VISITOR_DATA\":\"", "\"visitorData\":\""]
+        .iter()
+        .find_map(|key| {
+            let start = html.find(key)? + key.len();
+            let end = html[start..].find('"')?;
+            Some(html[start..start + end].to_owned())
+        })
+        .filter(|data| !data.is_empty())
+}
+
+/// the visitor data of a music.youtube.com page, fetched with the account's
+/// cookies when it is signed in: the visitor the player then sees is the account's
+pub async fn page_visitor_data(
+    http: &reqwest::Client,
+    url: &str,
+    cookie: Option<&str>,
+) -> Result<String, StreamError> {
+    let mut request = http
+        .get(url)
+        .header(reqwest::header::USER_AGENT, PAGE_USER_AGENT)
+        .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9");
+    if let Some(cookie) = cookie {
+        request = request.header(reqwest::header::COOKIE, cookie);
+    }
+    let failed = |error: reqwest::Error| StreamError::Failed(error.to_string());
+    let html = request
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(failed)?
+        .text()
+        .await
+        .map_err(failed)?;
+    visitor_data_in_page(&html).ok_or_else(|| {
+        StreamError::Failed("youtube music's page carried no visitor data".to_owned())
+    })
 }
 
 /// the aac audio in an mp4 to play: itag 140 (128 kbit/s) when there, else the
@@ -117,6 +164,11 @@ pub fn pick_audio(player: &Value) -> Result<Stream, StreamError> {
             .and_then(Value::as_str)
             .and_then(|length| length.parse().ok())
             .unwrap_or(0),
+        mime: chosen
+            .get("mimeType")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
     })
 }
 
@@ -161,7 +213,15 @@ pub async fn resolve(
         .json()
         .await
         .map_err(failed)?;
-    pick_audio(&player)
+    let stream = pick_audio(&player)?;
+    log::info!(
+        target: "ytmusic",
+        "YTMusic: Audio source resolved video={video_id} client={} size={}",
+        client.name,
+        stream.size
+    );
+    log::info!(target: "ytmusic", "YTMusic: Audio format detected {}", stream.mime);
+    Ok(stream)
 }
 
 /// the stream into `path`, a range at a time, with the user agent it was made for
@@ -175,6 +235,7 @@ pub async fn download(
     let mut file = tokio::fs::File::create(path)
         .await
         .map_err(|failure| format!("could not write the YouTube audio: {failure}"))?;
+    log::info!(target: "ytmusic", "YTMusic: Starting stream ({} bytes)", stream.size);
     let mut offset = 0;
     loop {
         let end = offset + CHUNK - 1;
@@ -199,6 +260,7 @@ pub async fn download(
             .await
             .map_err(|failure| format!("could not write the YouTube audio: {failure}"))?;
         offset += bytes.len() as u64;
+        log::debug!(target: "ytmusic", "YTMusic: Buffering {offset}/{}", stream.size);
         let done = if stream.size > 0 {
             offset >= stream.size
         } else {
@@ -235,13 +297,9 @@ mod tests {
             format(141, "audio/mp4; codecs=\"mp4a.40.2\"", 256_000, true),
             format(140, "audio/mp4; codecs=\"mp4a.40.2\"", 128_000, true),
         ]}});
-        assert_eq!(
-            pick_audio(&player).unwrap(),
-            Stream {
-                url: "https://g/140".into(),
-                size: 1000
-            }
-        );
+        let stream = pick_audio(&player).unwrap();
+        assert_eq!((stream.url.as_str(), stream.size), ("https://g/140", 1000));
+        assert!(stream.mime.starts_with("audio/mp4"));
     }
 
     #[test]
@@ -252,6 +310,21 @@ mod tests {
             format(251, "audio/webm; codecs=\"opus\"", 160_000, true),
         ]}});
         assert_eq!(pick_audio(&player).unwrap().url, "https://g/139");
+    }
+
+    #[test]
+    fn visitor_data_is_read_from_the_page_config() {
+        let page = r#"<script>ytcfg.set({"INNERTUBE_API_KEY":"k","VISITOR_DATA":"CgtBYmNk%3D%3D","HL":"en"})</script>"#;
+        assert_eq!(
+            visitor_data_in_page(page).as_deref(),
+            Some("CgtBYmNk%3D%3D")
+        );
+        assert_eq!(
+            visitor_data_in_page(r#"{"visitorData":"Cgt"}"#).as_deref(),
+            Some("Cgt")
+        );
+        assert_eq!(visitor_data_in_page(r#"{"VISITOR_DATA":""}"#), None);
+        assert_eq!(visitor_data_in_page("<html></html>"), None);
     }
 
     #[test]

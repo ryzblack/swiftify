@@ -3184,6 +3184,7 @@ dependencies = [
  "http",
  "librespot",
  "lofty",
+ "log",
  "protobuf",
  "reqwest",
  "rodio",

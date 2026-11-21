@@ -711,6 +711,10 @@ QCoro::Task<> PlaybackController::runStartPlayback(Song song, CancelToken token,
     QString failure;
     bool unavailable = false;
     bool cancelled = false;
+    if (song.isYouTube()) {
+        // the uri is the video's public id; no login ever goes to the log
+        qCInfo(lcPlayer).noquote() << "YTMusic: Track selected" << song.uri;
+    }
     try {
         setStatus(QStringLiteral("Loading"));
         m_errors->clear();
@@ -757,6 +761,7 @@ QCoro::Task<> PlaybackController::runStartPlayback(Song song, CancelToken token,
                 co_await start();
             }
             if (song.isYouTube()) {
+                qCInfo(lcPlayer).noquote() << "YTMusic: Playback started" << song.uri;
                 reportYouTubePlay(song.uri);
             }
         } else {
@@ -808,6 +813,9 @@ QCoro::Task<> PlaybackController::runStartPlayback(Song song, CancelToken token,
     } catch (const SpotifyError &error) {
         failure = error.message();
         unavailable = error.kind() == SpotifyError::Kind::Unavailable;
+        if (song.isYouTube() && error.kind() != SpotifyError::Kind::Superseded) {
+            qCWarning(lcPlayer).noquote() << "YTMusic: Playback failed" << song.uri << ':' << failure;
+        }
     }
 
     const bool withdrawn = cancelled || isCancelled(token) || !isCurrent(song);

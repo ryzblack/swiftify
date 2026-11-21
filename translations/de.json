@@ -666,7 +666,6 @@
   "Cookie header or cookies.txt from music.youtube.com": "Cookie-Header oder cookies.txt von music.youtube.com",
   "Sign In": "Anmelden",
   "Sign Out of YouTube Music": "Von YouTube Music abmelden",
-  "search and playback work signed out. your library, likes, playlists and history need the cookies of a signed-in music.youtube.com tab, kept in your keychain. songs you play are added to your YouTube history so it follows you to other devices. playback needs yt-dlp": "suche und wiedergabe gehen ohne anmeldung. bibliothek, likes, playlists und verlauf brauchen die cookies eines angemeldeten music.youtube.com-tabs, sie liegen im schlüsselbund. gespielte songs landen in deinem youtube-verlauf, damit er auf allen geräten da ist. für die wiedergabe braucht es yt-dlp",
   "YouTube Music needs no developer app. Search and playback work signed out; sign in to see your library, likes, playlists and history.": "YouTube Music braucht keine Entwickler-App. Suche und Wiedergabe gehen ohne Anmeldung; melde dich an, um Bibliothek, Likes, Playlists und Verlauf zu sehen.",
   "Copy your YouTube Music cookies": "Kopiere deine YouTube-Music-Cookies",
   "In a browser signed in to music.youtube.com, open the developer tools, pick any request under Network and copy its Cookie header. A cookies.txt export works too.": "Öffne in einem Browser, der bei music.youtube.com angemeldet ist, die Entwicklertools, wähle unter Netzwerk eine Anfrage und kopiere ihren Cookie-Header. Ein cookies.txt-Export geht auch.",

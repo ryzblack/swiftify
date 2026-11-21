@@ -67,7 +67,7 @@ Decision: YouTube Music's login (its cookies) goes to the secret service through
 login part of rustypipe's cache is kept; rustypipe's error reports to disk are turned off.
 
 ## ADR-008: YouTube Music's audio from innertube's visionOS client
-Status: accepted (2026-11-21), supersedes ADR-005
+Status: amended by ADR-010 (2026-11-21), supersedes ADR-005
 Context: yt-dlp failed songs with "Sign in to confirm you're not a bot". Metrolist's playback
 library (MetrolistGroup/innertubex, PlaybackClientCatalog, 2026-11-20) lists the VISIONOS 0.1
 client as the fastest for normal and non-age-gated explicit audio, signed in and out, given
@@ -93,3 +93,21 @@ to disk but the keychain entry. The window keeps QtWebEngine's own user agent: p
 google's identifier step, a Firefox user agent got a captcha and a Chrome one with Chrome client
 hints "Couldn't sign you in", while QtWebEngine as itself passed. Pasted cookies stay one click
 away should google still turn the window away.
+
+## ADR-010: No yt-dlp; the player sees the account's visitor
+Status: accepted (2026-11-21), amends ADR-008
+Context: signed in, songs still failed with "Sign in to confirm you're not a bot": the visionOS
+player request carried rustypipe's anonymous visitor data (that client takes no cookies), so
+youtube saw an anonymous visitor from the address, and the yt-dlp fallback then failed the same
+way and showed its own error. Metrolist's innertubex sends that client the signed-in session's
+visitor data (PlayerClientDirector: initialSession.visitorData, then the page's).
+Decision: signed in, the visitor data is read from music.youtube.com with the account's cookies
+and used for the player; a refused first attempt is retried once with the song's watch-page
+visitor data. yt-dlp is gone from the code, the flatpak (with node) and the docs. A refusal
+reaches the person in youtube's words with what to do (sign in, sign in again). Each stage logs
+under `ytmusic` (Resolving, Audio source resolved, Audio format detected, Starting stream,
+Buffering, Playback failed) and `swiftify.player` (Track selected, Playback started, Playback
+failed), without cookies, tokens or urls.
+Consequences: songs the visionOS client is refused even for an account (age-gated, made for kids)
+do not play; the web clients that would play them need youtube's signature javascript and a
+proof-of-origin token (yt-dlp's and innertubex's own machinery), which the core does not run.

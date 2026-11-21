@@ -189,8 +189,8 @@ youtube history on every device. the login is kept in your keychain.
 
 the sign-in window needs QtWebEngine (`qt6-webengine-dev` to build; the flatpak has it). built
 without it, the settings take the `Cookie` header of a signed-in music.youtube.com tab instead.
-age-gated and made-for-kids songs play through [yt-dlp](https://github.com/yt-dlp/yt-dlp) when
-it is installed; everything else plays without it.
+the audio comes straight from youtube music's player; no external program is involved. youtube
+may ask a signed-out address to confirm it is not a bot: signing in answers that.
 
 ### privacy
 

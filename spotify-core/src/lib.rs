@@ -1884,4 +1884,38 @@ mod tests {
         core.disconnect();
         assert!(!core.is_latest_request(request));
     }
+
+    /// the whole way, against youtube: a search result's id through the
+    /// core's own player until the position moves. `cargo test --features capi
+    /// --no-default-features -- --ignored plays_a_youtube`
+    #[test]
+    #[ignore = "reaches youtube music and needs an audio output"]
+    fn plays_a_youtube_music_song_through_the_core() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            use crate::music::MusicService;
+            let found = crate::music::youtube::service()
+                .search("Daft Punk Get Lucky", "")
+                .await
+                .unwrap();
+            let uri = found.songs[0].uri.clone();
+            let core = SpotifyCore::new();
+            let cache = std::env::temp_dir().join("swiftify-core-live");
+            core.set_audio_cache(cache.display().to_string(), 512 * 1024 * 1024)
+                .unwrap();
+            core.play_track(uri.clone()).await.unwrap();
+            let start = core.playback_position_ms();
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            let later = core.playback_position_ms();
+            println!(
+                "{uri}: position {start} ms -> {later} ms of {} ms",
+                core.playback_duration_ms()
+            );
+            assert!(later > start + 1_000, "the song plays on");
+            core.seek(120_000).unwrap();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            assert!(core.playback_position_ms() >= 120_000, "and seeks");
+            core.pause().unwrap();
+        });
+    }
 }

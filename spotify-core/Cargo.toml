@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 # RUST_LOG for librespot and the core (start_logging in lib.rs)
 env_logger = "=0.11.11"
+log = "0.4"
 hound = "3.5.1"
 # a playlist read through the session (playlist.rs), as librespot reads it
 http = "=1.5.0"
@@ -31,7 +32,7 @@ reqwest = "0.12"
 rustypipe = { version = "=0.11.4", default-features = false, features = ["default-tls", "userdata"] }
 sha1 = "0.10"
 swift-bridge = { version = "=0.1.59", features = ["async"], optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"] }
 
 [build-dependencies]
 swift-bridge-build = { version = "=0.1.59", optional = true }

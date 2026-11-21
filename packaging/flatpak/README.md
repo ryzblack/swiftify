@@ -45,10 +45,9 @@ cp -r ~/.config/Swiftify ~/.var/app/dev.shredos.Swiftify/config/
 
 ## spotify and youtube music inside it
 
-both work as in the native build: spotify through librespot, youtube music through its api with
-the audio fetched by the bundled yt-dlp (and node for youtube's javascript). update yt-dlp's pin
-in the manifest when youtube changes and playback stops: its version and sha256 are on
-https://github.com/yt-dlp/yt-dlp/releases.
+both work as in the native build: spotify through librespot, youtube music through its api, its
+audio straight from youtube music's player in the rust core. nothing outside the app is run, and
+no system program is needed.
 
 ## .flatpakref
 
