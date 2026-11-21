@@ -15,7 +15,7 @@ kept on this computer:
 - logins: spotify's and youtube music's in the keychain (secret service, keychain, credential
   manager) through QtKeychain, never in a file. youtube's is its cookies, under
   `youtube-music-login`, apart from spotify's, so logging out of one keeps the other
-- settings: `swiftify.conf` in the config folder (flatpak: `~/.var/app/dev.shredos.Swiftify/config`)
+- settings: `~/.config/Swiftify/Swiftify.conf` (flatpak: `~/.var/app/dev.shredos.Swiftify/config/Swiftify/Swiftify.conf`)
 - listening history for the stats: local only (`src/stats/PlayHistory`), exportable from the settings
 - song caches: spotify's (encrypted, as spotify sends it) and youtube's downloaded audio
   (`<cache>/youtube`), both trimmed to the size set under audio quality

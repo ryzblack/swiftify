@@ -20,10 +20,10 @@
 
 #include "app/ErrorCenter.h"
 #include "core/PlaybackCore.h"
+#include "system/ExternalUrl.h"
 
 #include <QCoreApplication>
 #include <QDebug>
-#include <QDesktopServices>
 #include <QEventLoop>
 #include <QLoggingCategory>
 #include <QProcess>
@@ -95,7 +95,7 @@ SpotifySession::SpotifySession(PlaybackCore *core, CredentialStore *credentials,
             return;
         }
 #endif
-        QDesktopServices::openUrl(url);
+        openExternally(url);
     };
     if (QCoreApplication *application = QCoreApplication::instance()) {
         connect(application, &QCoreApplication::aboutToQuit, this, &SpotifySession::flushCredentialSaves);
@@ -448,7 +448,7 @@ void SpotifySession::beginLogin(LoginPurpose purpose, const QStringList &scopes,
         } else {
             setLibraryStatus(QStringLiteral("Waiting for Spotify login"));
         }
-        QDesktopServices::openUrl(url);
+        openExternally(url);
     } catch (const SpotifyError &error) {
         setLoginPurpose(std::nullopt);
         reportError(error.message());
@@ -459,7 +459,7 @@ void SpotifySession::beginLogin(LoginPurpose purpose, const QStringList &scopes,
 void SpotifySession::reopenLoginPage()
 {
     if (m_authorizationUrl.isValid()) {
-        QDesktopServices::openUrl(m_authorizationUrl);
+        openExternally(m_authorizationUrl);
     }
 }
 

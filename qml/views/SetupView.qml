@@ -21,9 +21,13 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Swiftify
 
-// connecting the library and playback for the first time (SpotifySetupView)
+// connecting the library and playback for the first time (SpotifySetupView),
+// or choosing youtube music, which needs no setup beyond an optional sign-in
 Flickable {
     id: root
+
+    /// the service being set up, chosen at the top
+    property bool youTube: false
 
     // pages run up under the top bar, which floats over them with no
     // background of its own; they start below it
@@ -107,7 +111,79 @@ Flickable {
             font.weight: Font.Bold
         }
 
+        SegmentedControl {
+            anchors.horizontalCenter: parent.horizontalCenter
+            segmentHeight: 36
+            currentIndex: root.youTube ? 1 : 0
+            segments: [
+                Segment { text: "Spotify" },
+                Segment { text: "YouTube Music" }
+            ]
+            onActivated: (index) => root.youTube = index === 1
+        }
+
+        // youtube music: no developer app, the cookies of a signed-in tab or none
+        Column {
+            width: parent.width
+            spacing: 14
+            visible: root.youTube
+
+            StyledText {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                text: qsTr("YouTube Music needs no developer app. Search and playback work signed out; sign in to see your library, likes, playlists and history.")
+                color: Appearance.colors.onSurfaceVariant
+            }
+            Step {
+                number: 1
+                title: qsTr("Copy your YouTube Music cookies")
+                detail: qsTr("In a browser signed in to music.youtube.com, open the developer tools, pick any request under Network and copy its Cookie header. A cookies.txt export works too.")
+            }
+            TextButton {
+                x: 38
+                variant: TextButton.Text
+                symbol: "open_in_new"
+                text: qsTr("Open YouTube Music")
+                onClicked: App.openUrl("https://music.youtube.com")
+            }
+            Step {
+                number: 2
+                title: qsTr("Paste them here")
+                detail: qsTr("They are kept in your keychain, never in a file.")
+            }
+            OutlinedTextField {
+                id: youTubeCookies
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(460, parent.width)
+                placeholder: qsTr("Cookie header or cookies.txt from music.youtube.com")
+                onAccepted: if (signInButton.enabled) signInButton.clicked()
+            }
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: 12
+
+                TextButton {
+                    id: signInButton
+                    symbol: "login"
+                    text: qsTr("Sign In")
+                    enabled: !Session.youTubeBusy && youTubeCookies.text.trim().length > 0
+                    onClicked: {
+                        Session.signInToYouTube(youTubeCookies.text)
+                        youTubeCookies.text = ""
+                        Settings.musicService = "youtube"
+                    }
+                }
+                TextButton {
+                    variant: TextButton.Tonal
+                    text: qsTr("Continue Without Signing In")
+                    onClicked: Settings.musicService = "youtube"
+                }
+            }
+        }
+
         StyledText {
+            visible: !root.youTube
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
@@ -116,6 +192,7 @@ Flickable {
         }
 
         Column {
+            visible: !root.youTube
             width: parent.width
             spacing: 14
 
@@ -168,6 +245,7 @@ Flickable {
         }
 
         OutlinedTextField {
+            visible: !root.youTube
             anchors.horizontalCenter: parent.horizontalCenter
             width: Math.min(460, parent.width)
             placeholder: qsTr("Spotify Client ID")
@@ -179,6 +257,7 @@ Flickable {
         // the screen stays until both are connected (UiState.needsSetup):
         // each button says when its half is done, and the next one leads
         Row {
+            visible: !root.youTube
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: 12
 
@@ -199,6 +278,7 @@ Flickable {
         }
 
         StyledText {
+            visible: !root.youTube
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
             horizontalAlignment: Text.AlignHCenter

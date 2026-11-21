@@ -31,7 +31,7 @@ finish-args:
   # discord rich presence, off unless turned on in the settings
   - --filesystem=xdg-run/discord-ipc-0
   - --filesystem=xdg-run/app/com.discordapp.Discord:create
-  # what a native install keeps in ~/.config/swiftify is read once by
+  # what a native install keeps in ~/.config/Swiftify is brought over by
   # packaging/flatpak/README.md's steps, not by the app: no home access
 cleanup:
   - /include

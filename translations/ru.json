@@ -673,5 +673,12 @@
   "Cookie header or cookies.txt from music.youtube.com": "Заголовок Cookie или cookies.txt с music.youtube.com",
   "Sign In": "Войти",
   "Sign Out of YouTube Music": "Выйти из YouTube Music",
-  "search and playback work signed out. your library, likes, playlists and history need the cookies of a signed-in music.youtube.com tab, kept in your keychain. songs you play are added to your YouTube history so it follows you to other devices. playback needs yt-dlp": "поиск и воспроизведение работают без входа. для библиотеки, лайков, плейлистов и истории нужны cookies вкладки music.youtube.com, где выполнен вход; они хранятся в связке ключей. прослушанные песни добавляются в историю YouTube, чтобы она была на всех устройствах. для воспроизведения нужен yt-dlp"
+  "search and playback work signed out. your library, likes, playlists and history need the cookies of a signed-in music.youtube.com tab, kept in your keychain. songs you play are added to your YouTube history so it follows you to other devices. playback needs yt-dlp": "поиск и воспроизведение работают без входа. для библиотеки, лайков, плейлистов и истории нужны cookies вкладки music.youtube.com, где выполнен вход; они хранятся в связке ключей. прослушанные песни добавляются в историю YouTube, чтобы она была на всех устройствах. для воспроизведения нужен yt-dlp",
+  "YouTube Music needs no developer app. Search and playback work signed out; sign in to see your library, likes, playlists and history.": "Для YouTube Music не нужно приложение разработчика. Поиск и воспроизведение работают без входа; войдите, чтобы видеть библиотеку, лайки, плейлисты и историю.",
+  "Copy your YouTube Music cookies": "Скопируйте cookies YouTube Music",
+  "In a browser signed in to music.youtube.com, open the developer tools, pick any request under Network and copy its Cookie header. A cookies.txt export works too.": "В браузере, где выполнен вход на music.youtube.com, откройте инструменты разработчика, выберите любой запрос на вкладке «Сеть» и скопируйте его заголовок Cookie. Подойдёт и экспорт cookies.txt.",
+  "Open YouTube Music": "Открыть YouTube Music",
+  "Paste them here": "Вставьте их сюда",
+  "They are kept in your keychain, never in a file.": "Они хранятся в связке ключей, а не в файле.",
+  "Continue Without Signing In": "Продолжить без входа"
 }

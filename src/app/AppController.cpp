@@ -17,6 +17,7 @@
  */
 
 #include "app/AppController.h"
+#include "system/ExternalUrl.h"
 
 #include "app/Settings.h"
 #include "library/CollectionModels.h"
@@ -32,7 +33,6 @@
 #include <QTextStream>
 #include <QQuickWindow>
 #include <QCoreApplication>
-#include <QDesktopServices>
 #include <QGuiApplication>
 #include <QUrl>
 #include <QQmlEngine>
@@ -427,7 +427,7 @@ void AppController::copyToClipboard(const QString &text) const
 
 void AppController::openUrl(const QString &url) const
 {
-    QDesktopServices::openUrl(QUrl(url));
+    openExternally(QUrl(url));
 }
 
 } // namespace swiftify

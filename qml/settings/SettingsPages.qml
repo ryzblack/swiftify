@@ -834,7 +834,7 @@ Item {
                     x: 8
                     text: qsTr("Open Discord Developer Portal")
                     variant: TextButton.Text
-                    onClicked: Qt.openUrlExternally("https://discord.com/developers/applications")
+                    onClicked: App.openUrl("https://discord.com/developers/applications")
                 }
             }
 

@@ -174,8 +174,10 @@ QtObject {
     /// launch that restores the library before playback never shows it, nor
     /// does playback dropping later on
     property bool setupUnderway: false
-    /// the setup shows rather than the library
-    readonly property bool needsSetup: !Session.libraryConnected || (setupUnderway && !Session.connected)
+    /// the setup shows rather than the library. youtube music needs none:
+    /// it plays signed out, and signs in from the setup or the settings
+    readonly property bool needsSetup: Session.musicService !== "youtube"
+        && (!Session.libraryConnected || (setupUnderway && !Session.connected))
 
     function followSetup() {
         if (!Session.evaluatingStoredLogin && !Session.libraryConnected) {

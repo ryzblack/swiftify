@@ -40,7 +40,7 @@ shared with a native install. to bring a native install's settings over once:
 
 ```sh
 mkdir -p ~/.var/app/dev.shredos.Swiftify/config
-cp -r ~/.config/swiftify ~/.var/app/dev.shredos.Swiftify/config/
+cp -r ~/.config/Swiftify ~/.var/app/dev.shredos.Swiftify/config/
 ```
 
 ## spotify and youtube music inside it
