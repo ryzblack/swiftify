@@ -698,5 +698,7 @@
   "Sign in to YouTube Music": "Вход в YouTube Music",
   "Sign in with your Google account to see your library, likes, playlists and history. The sign-in opens in a window of Swiftify and is kept in your keychain.": "Войдите в аккаунт Google, чтобы видеть библиотеку, лайки, плейлисты и историю. Вход открывается в окне Swiftify и хранится в связке ключей.",
   "This removes the playlist from your %1 library.": "Плейлист будет удалён из вашей библиотеки %1.",
-  "YouTube Music sign-in expired, sign in again": "Вход в YouTube Music истёк, войдите снова"
+  "YouTube Music sign-in expired, sign in again": "Вход в YouTube Music истёк, войдите снова",
+  "Paste Cookies Instead": "Вставить cookies вместо этого",
+  "Sign In With Google Instead": "Войти через Google"
 }

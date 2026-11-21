@@ -161,7 +161,10 @@ Flickable {
                 color: Appearance.colors.onSurfaceVariant
             }
             Column {
-                visible: !Session.youTubeBrowserLogin
+                id: cookieSteps
+                // pasted cookies stand in where the sign-in window is missing or google turns it away
+                property bool chosen: false
+                visible: !Session.youTubeBrowserLogin || chosen
                 width: parent.width
                 spacing: 14
 
@@ -199,14 +202,14 @@ Flickable {
                     symbol: "login"
                     text: qsTr("Sign In")
                     enabled: !Session.youTubeBusy
-                             && (Session.youTubeBrowserLogin || youTubeCookies.text.trim().length > 0)
+                             && (!cookieSteps.visible || youTubeCookies.text.trim().length > 0)
                     onClicked: {
                         Settings.musicService = "youtube"
-                        if (Session.youTubeBrowserLogin) {
-                            Session.beginYouTubeLogin()
-                        } else {
+                        if (cookieSteps.visible) {
                             Session.signInToYouTube(youTubeCookies.text)
                             youTubeCookies.text = ""
+                        } else {
+                            Session.beginYouTubeLogin()
                         }
                     }
                 }
@@ -215,6 +218,13 @@ Flickable {
                     text: qsTr("Continue Without Signing In")
                     onClicked: Settings.musicService = "youtube"
                 }
+            }
+            TextButton {
+                visible: Session.youTubeBrowserLogin
+                anchors.horizontalCenter: parent.horizontalCenter
+                variant: TextButton.Text
+                text: cookieSteps.chosen ? qsTr("Sign In With Google Instead") : qsTr("Paste Cookies Instead")
+                onClicked: cookieSteps.chosen = !cookieSteps.chosen
             }
         }
 

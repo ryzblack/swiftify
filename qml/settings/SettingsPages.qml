@@ -704,9 +704,11 @@ Item {
                 }
                 OutlinedTextField {
                     id: youTubeCookies
+                    // pasted cookies stand in where the sign-in window is missing or google turns it away
+                    property bool chosen: false
                     x: 8
                     width: Math.min(460, parent.width - 16)
-                    visible: !Session.youTubeBrowserLogin && Session.youTubeState !== "connected"
+                    visible: (!Session.youTubeBrowserLogin || chosen) && Session.youTubeState !== "connected"
                     placeholder: qsTr("Cookie header or cookies.txt from music.youtube.com")
                     onAccepted: {
                         Session.signInToYouTube(text)
@@ -725,15 +727,21 @@ Item {
                         symbol: "login"
                         text: Session.youTubeState === "expired" ? qsTr("Sign In Again") : qsTr("Sign In")
                         enabled: !Session.youTubeBusy
-                                 && (Session.youTubeBrowserLogin || youTubeCookies.text.trim().length > 0)
+                                 && (!youTubeCookies.visible || youTubeCookies.text.trim().length > 0)
                         onClicked: {
-                            if (Session.youTubeBrowserLogin) {
-                                Session.beginYouTubeLogin()
-                            } else {
+                            if (youTubeCookies.visible) {
                                 Session.signInToYouTube(youTubeCookies.text)
                                 youTubeCookies.text = ""
+                            } else {
+                                Session.beginYouTubeLogin()
                             }
                         }
+                    }
+                    TextButton {
+                        visible: Session.youTubeBrowserLogin && Session.youTubeState !== "connected"
+                        variant: TextButton.Text
+                        text: youTubeCookies.chosen ? qsTr("Sign In With Google Instead") : qsTr("Paste Cookies Instead")
+                        onClicked: youTubeCookies.chosen = !youTubeCookies.chosen
                     }
                     TextButton {
                         visible: Session.youTubeState !== "anonymous"

@@ -35,8 +35,6 @@ namespace swiftify {
 namespace {
 /// where google's sign-in sends the account on to (Metrolist's LoginDialog)
 constexpr auto kSignInUrl = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com";
-/// google turns embedded browsers that say so away; the window says it is firefox
-constexpr auto kUserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";
 } // namespace
 
 QString youTubeCookieHeader(const QList<std::pair<QString, QString>> &cookies)
@@ -72,8 +70,10 @@ struct YouTubeLogin::Window : QWebEngineView {
     {
         setWindowTitle(QObject::tr("Sign in to YouTube Music"));
         resize(480, 720);
-        // a profile without a storage name is off the record: in memory only
-        profile.setHttpUserAgent(QString::fromLatin1(kUserAgent));
+        // a profile without a storage name is off the record: in memory only.
+        // the window keeps QtWebEngine's own user agent: google turns away an
+        // engine passing for another (a firefox one got a captcha, a chrome one
+        // "couldn't sign you in"), where QtWebEngine as itself got through
         setPage(new QWebEnginePage(&profile, this));
         QObject::connect(profile.cookieStore(), &QWebEngineCookieStore::cookieAdded, this,
                          [this](const QNetworkCookie &cookie) {

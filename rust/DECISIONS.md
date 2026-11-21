@@ -89,4 +89,7 @@ off-the-record profile, takes the youtube.com cookies once they hold SAPISID and
 the session, which keeps them in the keychain. Built when QtWebEngine is found (the flatpak's
 base app provides it); without it the cookies are pasted.
 Consequences: QtWebEngine joins the dependencies (optional); nothing of the sign-in is written
-to disk but the keychain entry.
+to disk but the keychain entry. The window keeps QtWebEngine's own user agent: probed 2026-11-21 at
+google's identifier step, a Firefox user agent got a captcha and a Chrome one with Chrome client
+hints "Couldn't sign you in", while QtWebEngine as itself passed. Pasted cookies stay one click
+away should google still turn the window away.
