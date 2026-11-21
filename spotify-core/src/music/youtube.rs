@@ -559,10 +559,25 @@ impl YouTube {
         };
         let mut attempt = match first {
             Ok(visitor_data) => {
-                youtube_stream::resolve(&self.http, &VISIONOS, video_id, &visitor_data).await
+                youtube_stream::resolve(&self.http, &VISIONOS, video_id, &visitor_data, None).await
             }
             Err(failure) => Err(StreamError::Failed(failure)),
         };
+        // signed in and refused: the same request carrying the account's login
+        if let (Err(StreamError::Unplayable(reason)), Some(cookie)) = (&attempt, &cookie) {
+            log::warn!(target: "ytmusic", "YTMusic: refused anonymously video={video_id}: {reason}; asking signed in");
+            let visitor_data = self.account_visitor_data(cookie).await.unwrap_or_default();
+            if let Some(authorization) = sapisid_hash(cookie, unix_seconds()) {
+                attempt = youtube_stream::resolve(
+                    &self.http,
+                    &VISIONOS,
+                    video_id,
+                    &visitor_data,
+                    Some((cookie.as_str(), authorization.as_str())),
+                )
+                .await;
+            }
+        }
         if let Err(first_failure) = &attempt {
             log::warn!(target: "ytmusic", "YTMusic: first attempt refused video={video_id}: {first_failure:?}");
             let watch = format!("{ORIGIN}/watch?v={video_id}");
@@ -570,7 +585,8 @@ impl YouTube {
                 .await
             {
                 Ok(visitor_data) => {
-                    youtube_stream::resolve(&self.http, &VISIONOS, video_id, &visitor_data).await
+                    youtube_stream::resolve(&self.http, &VISIONOS, video_id, &visitor_data, None)
+                        .await
                 }
                 Err(page_failure) => Err(page_failure),
             };
@@ -1476,6 +1492,7 @@ mod tests {
                 &crate::music::youtube_stream::VISIONOS,
                 id_of(&first.uri),
                 &page_visitor,
+                None,
             )
             .await
             .unwrap();

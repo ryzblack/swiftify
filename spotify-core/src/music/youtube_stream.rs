@@ -178,6 +178,7 @@ pub async fn resolve(
     client: &ClientProfile,
     video_id: &str,
     visitor_data: &str,
+    account: Option<(&str, &str)>,
 ) -> Result<Stream, StreamError> {
     let body = json!({
         "context": {"client": {
@@ -197,14 +198,24 @@ pub async fn resolve(
         "racyCheckOk": true,
     });
     let failed = |error: reqwest::Error| StreamError::Failed(error.to_string());
-    let player: Value = http
+    let request = http
         .post(PLAYER)
         .header(reqwest::header::USER_AGENT, client.user_agent)
         .header(reqwest::header::ORIGIN, ORIGIN)
         .header(reqwest::header::REFERER, format!("{ORIGIN}/"))
         .header("X-Goog-Visitor-Id", visitor_data)
         .header("X-YouTube-Client-Name", client.id)
-        .header("X-YouTube-Client-Version", client.version)
+        .header("X-YouTube-Client-Version", client.version);
+    // signed in: the account's cookies and their SAPISIDHASH, as youtube music's own requests carry
+    let request = match account {
+        Some((cookie, authorization)) => request
+            .header(reqwest::header::COOKIE, cookie)
+            .header(reqwest::header::AUTHORIZATION, authorization)
+            .header("X-Goog-AuthUser", "0")
+            .header("X-Origin", ORIGIN),
+        None => request,
+    };
+    let player: Value = request
         .json(&body)
         .send()
         .await
