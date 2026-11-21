@@ -55,6 +55,8 @@ public:
     QCoro::Task<QString> lyricsJson(QString spotifyUri) override;
     QCoro::Task<QString> playlistJson(QString playlistUri) override;
     QCoro::Task<QString> artistTopTracksJson(QString artistUri) override;
+    QCoro::Task<QString> serviceCall(QString service, QString method, QByteArray args,
+                                     QString accessToken) override;
 
     void play() override;
     void pause() override;

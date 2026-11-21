@@ -658,5 +658,13 @@
   "not a spotify artist: %1": "Kein Spotify-Interpret: %1",
   "the artist could not be read: %1": "Der Interpret konnte nicht gelesen werden: %1",
   "a required string was missing": "Ein erforderlicher String fehlte",
-  "a string was not valid utf-8": "Ein String war kein gültiges UTF-8"
+  "a string was not valid utf-8": "Ein String war kein gültiges UTF-8",
+  "Music Service": "Musikdienst",
+  "Library and search from": "Bibliothek und Suche von",
+  "Signing in…": "Anmeldung…",
+  "Signed in": "Angemeldet",
+  "Cookie header or cookies.txt from music.youtube.com": "Cookie-Header oder cookies.txt von music.youtube.com",
+  "Sign In": "Anmelden",
+  "Sign Out of YouTube Music": "Von YouTube Music abmelden",
+  "search and playback work signed out. your library, likes, playlists and history need the cookies of a signed-in music.youtube.com tab, kept in your keychain. songs you play are added to your YouTube history so it follows you to other devices. playback needs yt-dlp": "suche und wiedergabe gehen ohne anmeldung. bibliothek, likes, playlists und verlauf brauchen die cookies eines angemeldeten music.youtube.com-tabs, sie liegen im schlüsselbund. gespielte songs landen in deinem youtube-verlauf, damit er auf allen geräten da ist. für die wiedergabe braucht es yt-dlp"
 }

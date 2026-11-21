@@ -82,6 +82,8 @@ public:
     QCoro::Task<QString> lyricsJson(QString spotifyUri) override;
     QCoro::Task<QString> playlistJson(QString playlistUri) override;
     QCoro::Task<QString> artistTopTracksJson(QString artistUri) override;
+    QCoro::Task<QString> serviceCall(QString service, QString method, QByteArray args,
+                                     QString accessToken) override;
 
     void play() override;
     void pause() override;
@@ -147,6 +149,8 @@ private:
     /// hands what soloist plays to the rust core, if it is routed through it
     void playRouted();
 
+    /// stops soloist and hands the output to the core, for a file or a youtube music song
+    void takeOverForLocal();
     PlaybackCore *m_fallback;
     SoloistConfig m_config;
     std::unique_ptr<SwiftifyLiveBuffer, void (*)(SwiftifyLiveBuffer *)> m_liveBuffer;

@@ -387,6 +387,9 @@ int main(int argc, char *argv[])
         app.handleCommand(command);
     }
 
+    session.setMusicService(settings.musicService());
+    QObject::connect(&settings, &Settings::musicServiceChanged, &session,
+                     [&] { session.setMusicService(settings.musicService()); });
     session.restoreSavedSessions();
     return application.exec();
 }

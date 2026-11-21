@@ -263,6 +263,10 @@ private:
     bool skipUnavailable(const Song &song, bool steppingBack);
     void queueDidChange();
     void preloadNextTrack();
+    /// adds a youtube music song to the account's own history, as youtube's
+    /// player does, so the history follows the account to other devices
+    void reportYouTubePlay(const QString &uri);
+    QCoro::Task<> runReportYouTubePlay(QString uri);
     void syncMediaSession();
     void reset();
     void restorePlaybackState();

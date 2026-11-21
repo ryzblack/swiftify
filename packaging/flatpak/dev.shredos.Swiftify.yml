@@ -1,0 +1,128 @@
+# Swiftify as a flatpak: build it with packaging/flatpak/build.sh (see README.md there)
+app-id: dev.shredos.Swiftify
+runtime: org.kde.Platform
+runtime-version: '6.10'
+sdk: org.kde.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  # yt-dlp runs youtube's player javascript in node to fetch youtube music's audio
+  - org.freedesktop.Sdk.Extension.node24
+command: swiftify
+rename-desktop-file: swiftify.desktop
+rename-icon: swiftify
+finish-args:
+  # streaming from spotify and youtube music, the spotify login's local callback
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # the audio output, and following the default output device
+  - --socket=pulseaudio
+  # the logins (QtKeychain, through the secret service)
+  - --talk-name=org.freedesktop.secrets
+  # media keys and the desktop's player controls
+  - --own-name=org.mpris.MediaPlayer2.swiftify
+  - --own-name=org.mpris.MediaPlayer2.swiftify.*
+  # pausing for sleep and resuming after it (SleepMonitor)
+  - --system-talk-name=org.freedesktop.login1
+  # local files and their tags; other folders through the file chooser portal
+  - --filesystem=xdg-music
+  # discord rich presence, off unless turned on in the settings
+  - --filesystem=xdg-run/discord-ipc-0
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+  # what a native install keeps in ~/.config/swiftify is read once by
+  # packaging/flatpak/README.md's steps, not by the app: no home access
+cleanup:
+  - /include
+  - /lib/cmake
+  - /lib/pkgconfig
+  - /mkspecs
+  - '*.a'
+modules:
+  - name: qtkeychain
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_WITH_QT6=ON
+      - -DBUILD_TEST_APPLICATION=OFF
+      - -DBUILD_TRANSLATIONS=OFF
+    sources:
+      - type: git
+        url: https://github.com/frankosterfeld/qtkeychain.git
+        tag: 0.15.0
+        commit: ad7344c45a86a4f66cbafc4b081b5f7b876cb0b7
+
+  - name: qcoro
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DUSE_QT_VERSION=6
+      - -DBUILD_TESTING=OFF
+      - -DQCORO_BUILD_EXAMPLES=OFF
+      - -DQCORO_WITH_QTWEBSOCKETS=OFF
+    sources:
+      - type: git
+        url: https://github.com/qcoro/qcoro.git
+        tag: v0.12.0
+        commit: c100a96f0b98fda9c19e842764033f7e65411468
+
+  # fetches youtube music's audio (spotify-core src/music/youtube.rs); the
+  # runtime's python runs it. update the pin with yt-dlp's releases
+  - name: yt-dlp
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 yt-dlp /app/bin/yt-dlp
+      - install -Dm755 /usr/lib/sdk/node24/bin/node /app/bin/node
+    sources:
+      - type: file
+        url: https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp
+        sha256: e51e69e89489f199530f13d32a4342da3ddb2cf34842f364603a066db05afbf3
+
+  - name: swiftify
+    buildsystem: cmake-ninja
+    builddir: true
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/swiftify/cargo
+        CARGO_NET_OFFLINE: 'true'
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+      # corrosion comes from the sources below, not the network
+      - -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+      - -DFETCHCONTENT_SOURCE_DIR_CORROSION=/run/build/swiftify/corrosion
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - build
+          - .flatpak-builder
+          - flatpak-repo
+          - spotify-core/target
+      - type: git
+        url: https://github.com/corrosion-rs/corrosion.git
+        tag: v0.6.1
+        commit: 1499b14e4906a2890f5cee1547c8848db261753d
+        dest: corrosion
+      # the fonts cmake would download, at the paths it checks first, with its hashes
+      - type: file
+        url: https://raw.githubusercontent.com/google/material-design-icons/737e3324305806514d7909874fa1818ae1808232/variablefont/MaterialSymbolsRounded%5BFILL,GRAD,opsz,wght%5D.ttf
+        sha256: 95b24392bb49efd1bc3e92cff4e2452ad094461bab7c97e7d8723fab97e330ca
+        dest: _flatpak_build/fonts
+        dest-filename: MaterialSymbolsRounded.ttf
+      - type: file
+        url: https://raw.githubusercontent.com/google/fonts/a0e3dbcdc3a3ecfafff3f071159ae0221628922d/ofl/googlesansflex/GoogleSansFlex%5BGRAD,ROND,opsz,slnt,wdth,wght%5D.ttf
+        sha256: c31a482fbecbf2e07e6890134d20078723aadf732c9b9c6c9a44f86f8265b6fe
+        dest: _flatpak_build/fonts
+        dest-filename: GoogleSansFlex.ttf
+      - type: file
+        url: https://raw.githubusercontent.com/google/fonts/a0e3dbcdc3a3ecfafff3f071159ae0221628922d/ofl/googlesansflex/OFL.txt
+        sha256: fc13d69f63e36d284b6e383d4d1463d8ad404f0aa065e57cf961252d51063137
+        dest: _flatpak_build/fonts
+        dest-filename: GoogleSansFlex-OFL.txt
+      # spotify-core's crates, offline (cargo-sources.py)
+      - cargo-sources.json
+    post-install:
+      - install -Dm644 /run/build/swiftify/packaging/flatpak/dev.shredos.Swiftify.metainfo.xml /app/share/metainfo/dev.shredos.Swiftify.metainfo.xml

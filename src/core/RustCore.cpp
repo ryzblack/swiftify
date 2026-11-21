@@ -250,6 +250,17 @@ QCoro::Task<QString> RustCore::artistTopTracksJson(QString artistUri)
     co_return co_await request([&](quint64 id) { swiftify_core_artist_top_tracks_json(m_core, id, uri.constData()); });
 }
 
+QCoro::Task<QString> RustCore::serviceCall(QString service, QString method, QByteArray args, QString accessToken)
+{
+    const QByteArray serviceName = service.toUtf8();
+    const QByteArray methodName = method.toUtf8();
+    const QByteArray token = accessToken.toUtf8();
+    co_return co_await request([&](quint64 id) {
+        swiftify_core_service_call(m_core, id, serviceName.constData(), methodName.constData(), args.constData(),
+                                   token.constData());
+    });
+}
+
 void RustCore::play() { throwIfError(swiftify_core_play(m_core)); }
 void RustCore::pause() { throwIfError(swiftify_core_pause(m_core)); }
 void RustCore::seek(quint32 positionMs) { throwIfError(swiftify_core_seek(m_core, positionMs)); }

@@ -2,12 +2,12 @@
 Type=Application
 Name=Swiftify
 GenericName=Music Player
-Comment=Play your Spotify library
+Comment=Play your Spotify or YouTube Music library
 Exec=swiftify
 Icon=swiftify
 Terminal=false
 Categories=AudioVideo;Audio;Player;
-Keywords=spotify;music;player;lyrics;
+Keywords=spotify;youtube;music;player;lyrics;
 StartupWMClass=swiftify
 SingleMainWindow=true
 Actions=Immersive;PlayPause;

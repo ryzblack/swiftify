@@ -118,6 +118,8 @@ public:
     bool isValid() const { return !uri.isEmpty(); }
     /// its uri is the file's own url, file:///...
     bool isLocalFile() const { return uri.startsWith(QLatin1StringView("file:")); }
+    /// a youtube music song (ytmusic:track:<video id>): played without the spotify session
+    bool isYouTube() const { return uri.startsWith(QLatin1StringView("ytmusic:")); }
     QString localPath() const { return isLocalFile() ? QUrl(uri).toLocalFile() : QString(); }
     /// the same occurrence, not merely the same track
     bool isSameInstance(const Song &other) const { return instanceId == other.instanceId; }

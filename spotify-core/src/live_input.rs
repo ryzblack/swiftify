@@ -172,12 +172,17 @@ impl LiveBuffer {
         let wanted = out.len() - written;
         let taken = wanted.min(queue.samples.len());
         let taken = taken - taken % channels;
-        for (slot, sample) in out[written..written + taken].iter_mut().zip(queue.samples.drain(..taken)) {
+        for (slot, sample) in out[written..written + taken]
+            .iter_mut()
+            .zip(queue.samples.drain(..taken))
+        {
             *slot = sample;
         }
         written += taken;
         if written >= channels {
-            queue.last.copy_from_slice(&out[written - channels..written]);
+            queue
+                .last
+                .copy_from_slice(&out[written - channels..written]);
         }
         queue.slip_due = queue.slip_due.saturating_sub(written / channels);
         if written < out.len() {
@@ -285,7 +290,12 @@ impl LiveAnalysis {
 
     /// interleaved stereo, heard at `output_gain` of its full level, which
     /// the spectrum undoes so the bars don't shrink with the volume
-    pub(crate) fn feed(&mut self, spectrum: &SharedSpectrum, mut samples: &[f32], output_gain: f64) {
+    pub(crate) fn feed(
+        &mut self,
+        spectrum: &SharedSpectrum,
+        mut samples: &[f32],
+        output_gain: f64,
+    ) {
         if !spectrum.is_enabled() {
             self.index = 0;
             return;
@@ -451,7 +461,11 @@ mod tests {
         assert!(!dry);
         assert!(slips > 0);
         let late = &levels[levels.len() - 1_000..];
-        assert!(late.iter().all(|level| *level < 100.0), "the delay grew to {:?}", late.iter().cloned().fold(0.0, f64::max));
+        assert!(
+            late.iter().all(|level| *level < 100.0),
+            "the delay grew to {:?}",
+            late.iter().cloned().fold(0.0, f64::max)
+        );
     }
 
     #[test]

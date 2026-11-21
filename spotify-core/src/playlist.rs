@@ -54,7 +54,9 @@ pub async fn playlist_json(session: &Session, playlist_uri: &str) -> Result<Stri
     let items = uris
         .iter()
         .filter_map(|uri| tracks.get(uri))
-        .map(|track| ItemPayload { item: track.clone() })
+        .map(|track| ItemPayload {
+            item: track.clone(),
+        })
         .collect();
     serde_json::to_string(&PagePayload { items })
         .map_err(|error| format!("failed to encode the playlist: {error}"))
@@ -316,11 +318,11 @@ impl ImagePayload {
 
 #[cfg(test)]
 mod tests {
+    use librespot::protocol::metadata::Restriction;
     use librespot::protocol::{
         metadata::{Album, Artist, Image, ImageGroup, Track},
         playlist4_external::{Item, ListItems, SelectedListContent},
     };
-    use librespot::protocol::metadata::Restriction;
     use protobuf::{EnumOrUnknown, MessageField};
 
     use super::{ImageSize, Listener, TrackPayload, append_page};

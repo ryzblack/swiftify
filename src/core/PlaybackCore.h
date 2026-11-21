@@ -66,6 +66,11 @@ public:
     /// an artist's top songs read through the session, shaped like the web
     /// api's top tracks response, which spotify took away
     virtual QCoro::Task<QString> artistTopTracksJson(QString artistUri) = 0;
+    /// one call on a music service ("spotify" or "youtube"; WebApi). completes
+    /// with {"value", "state"} as json; a failure's message is the service's
+    /// error as json
+    virtual QCoro::Task<QString> serviceCall(QString service, QString method, QByteArray args,
+                                             QString accessToken) = 0;
 
     virtual void play() = 0;
     virtual void pause() = 0;

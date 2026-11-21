@@ -27,3 +27,8 @@ target/
 *.swp
 *.swo
 *~
+
+# flatpak builds (packaging/flatpak/build.sh)
+/.flatpak-builder/
+/flatpak-repo/
+/swiftify.flatpak

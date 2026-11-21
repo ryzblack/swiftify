@@ -77,6 +77,8 @@ class Settings : public QObject {
     Q_PROPERTY(bool windowControlsOnRight READ windowControlsOnRight WRITE setWindowControlsOnRight NOTIFY windowControlsOnRightChanged FINAL)
     /// where the stats page reads from: "statsfm" or "local"
     Q_PROPERTY(QString statsSource READ statsSource WRITE setStatsSource NOTIFY statsSourceChanged FINAL)
+    /// "spotify" or "youtube"
+    Q_PROPERTY(QString musicService READ musicService WRITE setMusicService NOTIFY musicServiceChanged FINAL)
     Q_PROPERTY(QString statsFmUsername READ statsFmUsername WRITE setStatsFmUsername NOTIFY statsFmUsernameChanged FINAL)
     /// whether songs played here are kept for the local stats
     Q_PROPERTY(bool trackListening READ trackListening WRITE setTrackListening NOTIFY trackListeningChanged FINAL)
@@ -190,6 +192,8 @@ public:
     void setShowWindowControls(bool value);
     bool windowControlsOnRight() const { return m_windowControlsOnRight; }
     QString statsSource() const { return m_statsSource; }
+    QString musicService() const { return m_musicService; }
+    void setMusicService(const QString &value);
     void setStatsSource(const QString &value);
     QString statsFmUsername() const { return m_statsFmUsername; }
     void setStatsFmUsername(const QString &value);
@@ -255,6 +259,7 @@ signals:
     void showWindowControlsChanged();
     void windowControlsOnRightChanged();
     void statsSourceChanged();
+    void musicServiceChanged();
     void statsFmUsernameChanged();
     void trackListeningChanged();
     void nativeTitleBarChanged();
@@ -302,6 +307,7 @@ private:
     bool m_showWindowControls = true;
     bool m_windowControlsOnRight = false;
     QString m_statsSource = QStringLiteral("local");
+    QString m_musicService = QStringLiteral("spotify");
     QString m_statsFmUsername;
     bool m_trackListening = true;
 #ifdef Q_OS_WIN

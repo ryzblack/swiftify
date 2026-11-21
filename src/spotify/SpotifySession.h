@@ -84,6 +84,10 @@ class SpotifySession : public QObject {
     Q_PROPERTY(bool loginIsForLibrary READ isLoginForLibrary NOTIFY loginChanged FINAL)
     Q_PROPERTY(QUrl authorizationUrl READ authorizationUrl NOTIFY loginChanged FINAL)
     Q_PROPERTY(QString redirectUri READ redirectUri CONSTANT FINAL)
+    /// "spotify" or "youtube": the service the library, search and views read from
+    Q_PROPERTY(QString musicService READ musicService WRITE setMusicService NOTIFY musicServiceChanged FINAL)
+    Q_PROPERTY(bool youTubeSignedIn READ isYouTubeSignedIn NOTIFY youTubeChanged FINAL)
+    Q_PROPERTY(bool youTubeBusy READ isYouTubeBusy NOTIFY youTubeChanged FINAL)
 
 public:
     static const QStringList kLibraryScopes;
@@ -98,10 +102,11 @@ public:
     QString status() const { return m_status; }
     QString libraryStatus() const { return m_libraryStatus; }
     bool isConnected() const { return m_connected; }
-    bool isLibraryConnected() const { return m_libraryConnected; }
-    bool libraryNeedsAuthorizationUpgrade() const { return m_libraryNeedsUpgrade; }
-    bool hasFullLibraryAccess() const { return m_libraryConnected && !m_libraryNeedsUpgrade; }
-    bool hasLibraryToken() const { return !m_libraryAccessToken.isEmpty(); }
+    // youtube music reads its catalog signed out, and keeps its own login
+    bool isLibraryConnected() const { return m_webApi.isYouTube() || m_libraryConnected; }
+    bool libraryNeedsAuthorizationUpgrade() const { return !m_webApi.isYouTube() && m_libraryNeedsUpgrade; }
+    bool hasFullLibraryAccess() const { return isLibraryConnected() && !libraryNeedsAuthorizationUpgrade(); }
+    bool hasLibraryToken() const { return m_webApi.isYouTube() || !m_libraryAccessToken.isEmpty(); }
     bool hasLibraryRefreshToken() const { return !m_libraryRefreshToken.isEmpty(); }
     bool isEvaluatingStoredLogin() const { return m_evaluatingStoredLogin; }
     QString libraryClientId() const { return m_libraryClientId; }
@@ -125,6 +130,14 @@ public:
     Q_INVOKABLE void reopenLoginPage();
     Q_INVOKABLE void cancelLogin();
     Q_INVOKABLE void logOut();
+
+    QString musicService() const { return m_webApi.service(); }
+    void setMusicService(const QString &service);
+    bool isYouTubeSignedIn() const { return m_youTubeSignedIn; }
+    bool isYouTubeBusy() const { return m_youTubeBusy; }
+    /// the Cookie header of a signed-in music.youtube.com tab, or a cookies.txt
+    Q_INVOKABLE void signInToYouTube(const QString &cookies);
+    Q_INVOKABLE void signOutOfYouTube();
 
     /// reads the saved logins and reconnects them. called once at launch.
     void restoreSavedSessions();
@@ -182,11 +195,16 @@ signals:
     void loggedOut();
     /// every login asked to be kept has been written
     void credentialsSaved();
+    void musicServiceChanged();
+    void youTubeChanged();
 
 private:
     enum class LoginPurpose { Playback, Library };
 
     QCoro::Task<> restore();
+    QCoro::Task<> restoreYouTube();
+    QCoro::Task<> runYouTubeSignIn(QString method, QJsonObject args);
+    void setYouTubeState(bool signedIn, bool busy);
     QCoro::Task<> restorePlaybackSession(StoredCredentials credentials);
     QCoro::Task<> restoreLibrarySession(StoredCredentials credentials);
     QCoro::Task<> logOutAsync();
@@ -273,12 +291,17 @@ private:
     /// the login under way was started by a repair, and has not yet asked
     /// anyone for anything
     bool m_automaticLogin = false;
+    bool m_youTubeSignedIn = false;
+    bool m_youTubeBusy = false;
     QTimer m_repairTimer;
 };
 
 template <typename T>
 QCoro::Task<T> SpotifySession::withLibraryAccessToken(std::function<QCoro::Task<T>(QString)> operation)
 {
+    if (m_webApi.isYouTube()) {
+        co_return co_await operation(QString());
+    }
     const quint64 generation = m_generation;
     if (m_libraryAccessToken.isEmpty()) {
         throw SpotifyError(SpotifyError::Kind::Session, QStringLiteral("Connect your Spotify library to continue."));

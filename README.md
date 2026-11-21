@@ -76,6 +76,19 @@ paru -S swiftify-bin
 </details>
 
 <details>
+<summary><b>flatpak</b></summary>
+<br>
+
+build and install it from this checkout, see [packaging/flatpak/README.md](packaging/flatpak/README.md)
+
+```sh
+packaging/flatpak/build.sh
+flatpak run dev.shredos.Swiftify
+```
+
+</details>
+
+<details>
 <summary><b>fedora and opensuse tumbleweed</b></summary>
 <br>
 
@@ -165,6 +178,22 @@ u can also get every build from [shredos.dev](https://shredos.dev/#download)
   make an app in the [spotify developer dashboard](https://developer.spotify.com/dashboard),
   add `http://127.0.0.1:8898/login` as a redirect uri, and paste the apps client id
   into swiftify. you dont need the client secret.
+
+### youtube music instead
+
+no premium or client id needed. pick **settings → account → music service → youtube music**.
+search and playback work signed out. for your library, likes, playlists and history, paste the
+`Cookie` header of a signed-in music.youtube.com tab (devtools → network → any request) or a
+cookies.txt export into the sign-in field; it is kept in your keychain.
+
+playback fetches each song's audio with [yt-dlp](https://github.com/yt-dlp/yt-dlp), which needs
+node or deno for youtube's javascript: install them (the flatpak bundles yt-dlp and node). songs you play
+are added to your youtube history, so it follows you to other devices. spotify and youtube music
+logins are separate; switching keeps both.
+
+### privacy
+
+no telemetry, analytics or crash reports. what goes where is in [docs/privacy.md](docs/privacy.md).
 
 ## guides
 

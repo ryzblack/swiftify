@@ -525,11 +525,9 @@ fn raise_decoder_priority() {
     thread_local! {
         static RAISED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
-    if RAISED.with(|raised| raised.replace(true)) {
-        return;
-    }
+    let already_raised = RAISED.with(|raised| raised.replace(true));
     #[cfg(target_os = "macos")]
-    {
+    if !already_raised {
         const QOS_CLASS_USER_INTERACTIVE: u32 = 0x21;
         unsafe extern "C" {
             fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
@@ -539,6 +537,8 @@ fn raise_decoder_priority() {
             pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
         }
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = already_raised;
 }
 
 impl Sink for SpectrumSink {

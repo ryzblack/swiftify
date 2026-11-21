@@ -24,8 +24,14 @@ serde = { version = "1", features = ["derive"] }
 # reads a local file's tags and cover art (local.rs)
 symphonia = { version = "=0.5.5", default-features = false, features = ["mp3", "flac", "ogg", "vorbis", "wav", "pcm", "aiff", "isomp4", "aac", "alac"] }
 serde_json = "1"
+# the music services' apis (src/music): spotify's web api, and youtube music
+# through innertube. its cache, cookies included, goes to the keychain, never a file
+futures = "0.3"
+reqwest = "0.12"
+rustypipe = { version = "=0.11.4", default-features = false, features = ["default-tls", "userdata"] }
+sha1 = "0.10"
 swift-bridge = { version = "=0.1.59", features = ["async"], optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process"] }
 
 [build-dependencies]
 swift-bridge-build = { version = "=0.1.59", optional = true }
@@ -47,3 +53,7 @@ strip = "debuginfo"
 
 [patch.crates-io]
 librespot-core = { path = "vendor/librespot-core" }
+
+[dev-dependencies]
+# the fake web api the music tests talk to (src/music/spotify.rs)
+tokio = { version = "1", features = ["net", "io-util"] }

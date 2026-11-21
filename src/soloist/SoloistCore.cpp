@@ -734,6 +734,12 @@ void SoloistCore::stopSoloist()
 
 QCoro::Task<> SoloistCore::playTrack(QString spotifyUri)
 {
+    // soloist plays spotify's songs only: youtube music's play in the core, as files do
+    if (spotifyUri.startsWith(QLatin1StringView("ytmusic:"))) {
+        takeOverForLocal();
+        co_await m_fallback->playTrack(spotifyUri);
+        co_return;
+    }
     const quint64 resets = m_resets;
     const quint64 request = ++m_requests;
     // soloist's state is the old song's until this one starts, however it ends
@@ -812,9 +818,12 @@ QCoro::Task<> SoloistCore::playTrack(QString spotifyUri)
     gate(false);
 }
 
-void SoloistCore::preloadTrack(const QString &, bool)
+void SoloistCore::preloadTrack(const QString &spotifyUri, bool preloadStandby)
 {
-    // soloist buffers ahead by itself
+    // soloist buffers ahead by itself; the core fetches youtube music's songs ahead
+    if (spotifyUri.startsWith(QLatin1StringView("ytmusic:"))) {
+        m_fallback->preloadTrack(spotifyUri, preloadStandby);
+    }
 }
 
 QCoro::Task<> SoloistCore::crossfadeTrack(QString spotifyUri, quint32)
@@ -837,6 +846,12 @@ QCoro::Task<> SoloistCore::crossfadeTrack(QString spotifyUri, quint32)
 
 QCoro::Task<> SoloistCore::playFile(QString path)
 {
+    takeOverForLocal();
+    co_await m_fallback->playFile(path);
+}
+
+void SoloistCore::takeOverForLocal()
+{
     ++m_requests;
     stopSoloist();
     m_expectedUri.clear();
@@ -850,7 +865,6 @@ QCoro::Task<> SoloistCore::playFile(QString path)
         m_fallback->setVolume(m_volume);
     } catch (const SpotifyError &) {
     }
-    co_await m_fallback->playFile(path);
 }
 
 QCoro::Task<> SoloistCore::restartAudioOutput()
@@ -1006,6 +1020,11 @@ QCoro::Task<QString> SoloistCore::lyricsJson(QString spotifyUri)
 QCoro::Task<QString> SoloistCore::playlistJson(QString playlistUri)
 {
     co_return co_await m_fallback->playlistJson(playlistUri);
+}
+
+QCoro::Task<QString> SoloistCore::serviceCall(QString service, QString method, QByteArray args, QString accessToken)
+{
+    co_return co_await m_fallback->serviceCall(service, method, args, accessToken);
 }
 
 QCoro::Task<QString> SoloistCore::artistTopTracksJson(QString artistUri)

@@ -22,7 +22,6 @@
 #include "app/Settings.h"
 #include "core/Async.h"
 #include "library/LibraryStore.h"
-#include "spotify/SpotifyJson.h"
 #include "spotify/CredentialStore.h"
 #include "spotify/OAuthFlow.h"
 #include "spotify/SpotifySession.h"
@@ -34,6 +33,7 @@
 #include <QNetworkReply>
 #include <QPointer>
 #include <QSignalSpy>
+#include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTest>
@@ -42,6 +42,7 @@
 #include <QUrlQuery>
 
 #include <algorithm>
+#include <functional>
 #include <utility>
 
 using namespace swiftify;
@@ -97,6 +98,92 @@ private:
 /// spotify's accounts service, as far as tokens go: every refresh rotates
 /// the refresh token, and spending one it already replaced revokes the whole
 /// login it belonged to
+/// spotify's web api, stood in for by a local http server the rust core is
+/// pointed at (SWIFTIFY_SPOTIFY_API, set before the core first reads it). one
+/// for the whole run, as the core keeps the address; it answers from the
+/// current rig's FakeAccounts and records its calls there
+class ApiServer : public QTcpServer {
+public:
+    static ApiServer &instance()
+    {
+        static ApiServer server;
+        return server;
+    }
+
+    QHash<QString, QByteArray> *api = nullptr;
+    QStringList *calls = nullptr;
+    /// replies wait for releaseHeld() while this is set, as FakeAccounts' do
+    bool *holding = nullptr;
+
+    void releaseHeld()
+    {
+        for (const auto &reply : std::exchange(m_held, {})) {
+            reply();
+        }
+    }
+
+private:
+    ApiServer()
+    {
+        listen(QHostAddress::LocalHost);
+        qputenv("SWIFTIFY_SPOTIFY_API", QStringLiteral("http://127.0.0.1:%1").arg(serverPort()).toUtf8());
+        connect(this, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, socket, [this, socket] { answer(socket); });
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            }
+        });
+    }
+
+    void answer(QTcpSocket *socket)
+    {
+        QByteArray &buffer = m_buffers[socket];
+        buffer += socket->readAll();
+        const qsizetype headEnd = buffer.indexOf("\r\n\r\n");
+        if (headEnd < 0) {
+            return;
+        }
+        const QList<QByteArray> head = buffer.left(headEnd).split('\n');
+        qsizetype length = 0;
+        for (const QByteArray &line : head) {
+            if (line.toLower().startsWith("content-length:")) {
+                length = line.mid(15).trimmed().toLongLong();
+            }
+        }
+        if (buffer.size() < headEnd + 4 + length) {
+            return;
+        }
+        const QList<QByteArray> request = head.first().trimmed().split(' ');
+        m_buffers.remove(socket);
+        const QUrl url(QString::fromUtf8(request.value(1)));
+        const QString query = url.query(QUrl::FullyDecoded);
+        if (calls) {
+            *calls << QStringLiteral("%1 %2%3").arg(QString::fromLatin1(request.value(0)), url.path(),
+                                                   query.isEmpty() ? QString() : u'?' + query);
+        }
+        const bool found = api && api->contains(url.path());
+        const QByteArray body = found ? api->value(url.path()) : QByteArray(R"({"error":{"status":404,"message":"Not found"}})");
+        const QByteArray reply = (found ? "HTTP/1.1 200 OK" : "HTTP/1.1 404 Not Found")
+            + QByteArray("\r\nContent-Type: application/json") + "\r\nContent-Length: "
+            + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
+        const QPointer<QTcpSocket> target(socket);
+        const auto send = [target, reply] {
+            if (target) {
+                target->write(reply);
+                target->disconnectFromHost();
+            }
+        };
+        if (holding && *holding) {
+            m_held.append(send);
+        } else {
+            send();
+        }
+    }
+
+    QHash<QTcpSocket *, QByteArray> m_buffers;
+    QList<std::function<void()>> m_held;
+};
+
 class FakeAccounts : public QNetworkAccessManager {
     Q_OBJECT
 
@@ -114,6 +201,21 @@ public:
     /// every web api call, as its method, path and query
     QStringList apiCalls;
 
+    FakeAccounts()
+    {
+        ApiServer::instance().api = &api;
+        ApiServer::instance().calls = &apiCalls;
+        ApiServer::instance().holding = &holding;
+    }
+    ~FakeAccounts() override
+    {
+        if (ApiServer::instance().api == &api) {
+            ApiServer::instance().api = nullptr;
+            ApiServer::instance().calls = nullptr;
+            ApiServer::instance().holding = nullptr;
+        }
+    }
+
     /// a new login, and its first refresh token
     QString login()
     {
@@ -125,6 +227,7 @@ public:
     }
     void release()
     {
+        ApiServer::instance().releaseHeld();
         for (const QPointer<CannedReply> &reply : std::exchange(m_held, {})) {
             if (reply) {
                 reply->finishNow();
@@ -135,15 +238,6 @@ public:
 protected:
     QNetworkReply *createRequest(Operation operation, const QNetworkRequest &request, QIODevice *data) override
     {
-        if (request.url().host() == QLatin1StringView("api.spotify.com")) {
-            const QString query = request.url().query(QUrl::FullyDecoded);
-            apiCalls << QStringLiteral("%1 %2%3").arg(
-                request.attribute(QNetworkRequest::CustomVerbAttribute).toString(), request.url().path(),
-                query.isEmpty() ? QString() : u'?' + query);
-            const auto found = api.constFind(request.url().path());
-            return found == api.cend() ? reply(request, 404, R"({"error":{"status":404,"message":"Not found"}})")
-                                       : reply(request, 200, *found);
-        }
         if (request.url().host() != QLatin1StringView(kHost)) {
             return QNetworkAccessManager::createRequest(operation, request, data);
         }
@@ -237,6 +331,8 @@ public:
         items.clear();
         co_return;
     }
+    QCoro::Task<QByteArray> loadSecret(QString) override { co_return QByteArray(); }
+    QCoro::Task<> saveSecret(QString, QByteArray) override { co_return; }
 };
 
 QCoro::Task<> fetchLibraryToken(SpotifySession &session, QStringList &tokens)
@@ -260,8 +356,17 @@ QString failureOf(QCoro::Task<T> task)
     return {};
 }
 
+/// lets what is under way finish: queued events, and the music-service calls
+/// the rust core is answering from the stand-in web api
 void settle()
 {
+    QElapsedTimer waited;
+    waited.start();
+    do {
+        for (int pass = 0; pass < 10; ++pass) {
+            QCoreApplication::processEvents();
+        }
+    } while (FakeCore::servicesInFlight.load() > 0 && waited.elapsed() < 5000);
     for (int pass = 0; pass < 10; ++pass) {
         QCoreApplication::processEvents();
     }
@@ -672,35 +777,15 @@ private slots:
         QCOMPARE(rig.errors.message(), QString());
     }
 
-    void aPlaylistDescriptionReadsAsPlainText()
+    // spotify's json itself is read in the rust core now: its cases are in
+    // spotify-core/src/music/spotify.rs (descriptions, playability, relinking)
+    void aSongKeepsWhetherItWillPlay()
     {
-        const auto description = [](const char *html) {
-            return json::playlist(QJsonObject {{QStringLiteral("id"), QStringLiteral("x")},
-                                               {QStringLiteral("description"), QLatin1StringView(html)}})
-                .description;
-        };
-        QCOMPARE(description("JoJo&#x27;s ops &amp; some other bangers."),
-                 QStringLiteral("JoJo's ops & some other bangers."));
-        QCOMPARE(description(R"(more at <a href="spotify:playlist:y">Part 2</a> &#39;n &quot;more&quot;)"),
-                 QStringLiteral("more at Part 2 'n \"more\""));
-        // not an entity, left as it is
-        QCOMPARE(description("rock &roll; &bogus; a&b"), QStringLiteral("rock &roll; &bogus; a&b"));
-    }
-
-    void aTrackSaysWhetherItWillPlay()
-    {
-        const auto parse = [](const char *object) {
-            return json::track(QJsonDocument::fromJson(object).object());
-        };
-        QVERIFY(parse(R"({"type":"track","uri":"spotify:track:a","name":"A"})")->isPlayable);
-        const auto blocked = parse(R"({"type":"track","uri":"spotify:track:a","name":"A","is_playable":false})");
-        QVERIFY(!blocked->isPlayable);
-        QVERIFY(!Song::fromJson(blocked->toJson()).isPlayable);
+        Song blocked;
+        blocked.uri = QStringLiteral("spotify:track:a");
+        blocked.isPlayable = false;
+        QVERIFY(!Song::fromJson(blocked.toJson()).isPlayable);
         QVERIFY(Song::fromJson(QJsonObject {{QStringLiteral("uri"), QStringLiteral("spotify:track:a")}}).isPlayable);
-        // a relinked copy keeps the uri playlists hold
-        const auto relinked = parse(R"({"type":"track","uri":"spotify:track:b","name":"A","is_playable":true,)"
-                                    R"("linked_from":{"uri":"spotify:track:a"}})");
-        QCOMPARE(relinked->uri, QStringLiteral("spotify:track:a"));
     }
 
     void aLogoutForgetsALoginStillBeingWritten()
@@ -718,124 +803,6 @@ private slots:
         QTRY_COMPARE(loggedOut.count(), 1);
         settle();
         QVERIFY(rig.store.items.isEmpty());
-    }
-
-    void anAlbumIsReadByItsId()
-    {
-        // Given
-        Rig rig;
-        rig.accounts.api.insert(QStringLiteral("/v1/albums/4aawyAB9vmqN3uQ7FjRGTy"),
-                                R"({"id":"4aawyAB9vmqN3uQ7FjRGTy","uri":"spotify:album:4aawyAB9vmqN3uQ7FjRGTy",)"
-                                R"("name":"Global Warming","artists":[{"name":"Pitbull"}],)"
-                                R"("images":[{"url":"https:\/\/img.test/cover","width":640}]})");
-
-        // When
-        const Album album = QCoro::waitFor(rig.session.webApi().album(QStringLiteral("4aawyAB9vmqN3uQ7FjRGTy"), QStringLiteral("access")));
-
-        // Then
-        QCOMPARE(album.id, QStringLiteral("4aawyAB9vmqN3uQ7FjRGTy"));
-        QCOMPARE(album.name, QStringLiteral("Global Warming"));
-        QCOMPARE(album.artists, QStringLiteral("Pitbull"));
-        QCOMPARE(album.artworkUrl, QUrl(QStringLiteral("https://img.test/cover")));
-        QCOMPARE(rig.accounts.apiCalls.size(), 1);
-        QVERIFY(rig.accounts.apiCalls.first().startsWith(QStringLiteral("GET /v1/albums/4aawyAB9vmqN3uQ7FjRGTy")));
-    }
-
-    void anAlbumWithoutAnIdIsUnsupported()
-    {
-        // Given
-        Rig rig;
-        rig.accounts.api.insert(QStringLiteral("/v1/albums/4aawyAB9vmqN3uQ7FjRGTy"), "{}");
-
-        // When
-        const QString failure = failureOf(rig.session.webApi().album(QStringLiteral("4aawyAB9vmqN3uQ7FjRGTy"), QStringLiteral("access")));
-
-        // Then
-        QVERIFY2(failure.contains(QStringLiteral("unsupported album")), qPrintable(failure));
-    }
-
-    void aPlaylistIsReadByItsIdWithoutItsTracks()
-    {
-        // Given
-        Rig rig;
-        rig.accounts.api.insert(QStringLiteral("/v1/playlists/37i9dQZF1DXcBWIGoYBM5M"),
-                                R"({"id":"37i9dQZF1DXcBWIGoYBM5M","name":"Todays Top Hits",)"
-                                R"("owner":{"id":"spotify","display_name":"Spotify"},)"
-                                R"("images":[{"url":"https:\/\/img.test/playlist","width":640}]})");
-
-        // When
-        const Playlist playlist = QCoro::waitFor(rig.session.webApi().playlist(QStringLiteral("37i9dQZF1DXcBWIGoYBM5M"), QStringLiteral("access")));
-
-        // Then
-        QCOMPARE(playlist.name, QStringLiteral("Todays Top Hits"));
-        QCOMPARE(playlist.ownerId, QStringLiteral("spotify"));
-        QCOMPARE(playlist.ownerName, QStringLiteral("Spotify"));
-        QCOMPARE(playlist.artworkUrl, QUrl(QStringLiteral("https://img.test/playlist")));
-        QCOMPARE(playlist.uri, QStringLiteral("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"));
-        QCOMPARE(rig.accounts.apiCalls.size(), 1);
-        QVERIFY(rig.accounts.apiCalls.first().contains(QStringLiteral("fields=")));
-        QVERIFY(!rig.accounts.apiCalls.join(u'\n').contains(QStringLiteral("/items")));
-    }
-
-    void aPlaylistWithoutAnIdIsUnsupported()
-    {
-        // Given
-        Rig rig;
-        rig.accounts.api.insert(QStringLiteral("/v1/playlists/37i9dQZF1DXcBWIGoYBM5M"), "{}");
-
-        // When
-        const QString failure = failureOf(rig.session.webApi().playlist(QStringLiteral("37i9dQZF1DXcBWIGoYBM5M"), QStringLiteral("access")));
-
-        // Then
-        QVERIFY2(failure.contains(QStringLiteral("unsupported playlist")), qPrintable(failure));
-    }
-
-    void anArtistIsReadByItsId()
-    {
-        // Given
-        Rig rig;
-        rig.accounts.api.insert(QStringLiteral("/v1/artists/4Z8W4fKeB5YxbusRsdQVPb"),
-                                R"({"id":"4Z8W4fKeB5YxbusRsdQVPb","uri":"spotify:artist:4Z8W4fKeB5YxbusRsdQVPb",)"
-                                R"("name":"Radiohead","images":[{"url":"https:\/\/img.test/artist","width":640}]})");
-
-        // When
-        const Artist artist = QCoro::waitFor(rig.session.webApi().artist(QStringLiteral("4Z8W4fKeB5YxbusRsdQVPb"), QStringLiteral("access")));
-
-        // Then
-        QCOMPARE(artist.id, QStringLiteral("4Z8W4fKeB5YxbusRsdQVPb"));
-        QCOMPARE(artist.name, QStringLiteral("Radiohead"));
-        QCOMPARE(artist.artworkUrl, QUrl(QStringLiteral("https://img.test/artist")));
-        QCOMPARE(rig.accounts.apiCalls.size(), 1);
-    }
-
-    void anArtistWithoutAnIdIsUnsupported()
-    {
-        // Given
-        Rig rig;
-        rig.accounts.api.insert(QStringLiteral("/v1/artists/4Z8W4fKeB5YxbusRsdQVPb"), "{}");
-
-        // When
-        const QString failure = failureOf(rig.session.webApi().artist(QStringLiteral("4Z8W4fKeB5YxbusRsdQVPb"), QStringLiteral("access")));
-
-        // Then
-        QVERIFY2(failure.contains(QStringLiteral("unsupported artist")), qPrintable(failure));
-    }
-
-    void aMissingAlbumPlaylistOrArtistResultsInTheNotFound()
-    {
-        // Given
-        Rig rig;
-        const QString id = QStringLiteral("4aawyAB9vmqN3uQ7FjRGTy");
-
-        // When
-        const QString album = failureOf(rig.session.webApi().album(id, QStringLiteral("access")));
-        const QString playlist = failureOf(rig.session.webApi().playlist(id, QStringLiteral("access")));
-        const QString artist = failureOf(rig.session.webApi().artist(id, QStringLiteral("access")));
-
-        // Then
-        QVERIFY(!album.isEmpty());
-        QVERIFY(!playlist.isEmpty());
-        QVERIFY(!artist.isEmpty());
     }
 
     void aPastedTrackLinkOpensItsAlbum()

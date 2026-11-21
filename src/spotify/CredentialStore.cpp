@@ -127,6 +127,61 @@ QCoro::Task<> KeychainCredentialStore::removeAll()
     }
 }
 
+QCoro::Task<QByteArray> KeychainCredentialStore::loadSecret(QString key)
+{
+    QKeychain::ReadPasswordJob job(service());
+    job.setAutoDelete(false);
+    job.setKey(key);
+    job.start();
+    co_await qCoro(&job, &QKeychain::Job::finished);
+    if (job.error() == QKeychain::EntryNotFound) {
+        co_return QByteArray();
+    }
+    if (job.error() != QKeychain::NoError) {
+        throw storeError(QStringLiteral("load"), job.errorString());
+    }
+    co_return job.binaryData();
+}
+
+QCoro::Task<> KeychainCredentialStore::saveSecret(QString key, QByteArray value)
+{
+    if (value.isEmpty()) {
+        QKeychain::DeletePasswordJob job(service());
+        job.setAutoDelete(false);
+        job.setKey(key);
+        job.start();
+        co_await qCoro(&job, &QKeychain::Job::finished);
+        if (job.error() != QKeychain::NoError && job.error() != QKeychain::EntryNotFound) {
+            throw storeError(QStringLiteral("delete"), job.errorString());
+        }
+        co_return;
+    }
+    QKeychain::WritePasswordJob job(service());
+    job.setAutoDelete(false);
+    job.setKey(key);
+    job.setBinaryData(value);
+    job.start();
+    co_await qCoro(&job, &QKeychain::Job::finished);
+    if (job.error() != QKeychain::NoError) {
+        throw storeError(QStringLiteral("save"), job.errorString());
+    }
+}
+
+QCoro::Task<QByteArray> MemoryCredentialStore::loadSecret(QString key)
+{
+    co_return secrets.value(key);
+}
+
+QCoro::Task<> MemoryCredentialStore::saveSecret(QString key, QByteArray value)
+{
+    if (value.isEmpty()) {
+        secrets.remove(key);
+    } else {
+        secrets.insert(key, value);
+    }
+    co_return;
+}
+
 QCoro::Task<std::optional<StoredCredentials>> MemoryCredentialStore::load(Account account)
 {
     const auto found = items.constFind(account);

@@ -184,7 +184,7 @@ fn apply_edits(tag: &mut Tag, edits: &TagEdits, artwork: Option<&[u8]>) {
         (ItemKey::RecordingDate, &edits.date),
     ] {
         if let Some(value) = text(value) {
-            tag.remove_key(key.clone());
+            tag.remove_key(key);
             if let Some(value) = value {
                 tag.insert_text(key, value);
             }
@@ -309,11 +309,11 @@ pub fn replay_gain(path: &Path) -> f32 {
     let find = |key: ItemKey| {
         file.tags()
             .iter()
-            .find_map(|tag| tag.get_string(key.clone()))
+            .find_map(|tag| tag.get_string(key))
             .and_then(parse_replay_gain_value)
     };
-    let Some(gain_db) = find(ItemKey::ReplayGainTrackGain)
-        .or_else(|| find(ItemKey::ReplayGainAlbumGain))
+    let Some(gain_db) =
+        find(ItemKey::ReplayGainTrackGain).or_else(|| find(ItemKey::ReplayGainAlbumGain))
     else {
         return 1.0;
     };
@@ -325,10 +325,13 @@ pub fn replay_gain(path: &Path) -> f32 {
 }
 
 fn parse_replay_gain_value(text: &str) -> Option<f32> {
-    let trimmed = text
-        .trim()
-        .trim_end_matches(|character: char| character.is_ascii_alphabetic() || character.is_whitespace());
-    trimmed.parse::<f32>().ok().filter(|value| value.is_finite())
+    let trimmed = text.trim().trim_end_matches(|character: char| {
+        character.is_ascii_alphabetic() || character.is_whitespace()
+    });
+    trimmed
+        .parse::<f32>()
+        .ok()
+        .filter(|value| value.is_finite())
 }
 
 fn apply(tags: &mut LocalTags, revision: &MetadataRevision, cover: &mut Option<Visual>) {

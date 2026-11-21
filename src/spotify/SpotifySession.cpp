@@ -22,6 +22,7 @@
 #include "core/PlaybackCore.h"
 
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDesktopServices>
 #include <QEventLoop>
 #include <QLoggingCategory>
@@ -38,6 +39,8 @@ Q_LOGGING_CATEGORY(lcSession, "swiftify.session")
 
 namespace {
 SpotifySession *s_instance = nullptr;
+/// the keychain entry youtube music's login is kept under, apart from spotify's
+constexpr QLatin1StringView kYouTubeLoginKey("youtube-music-login");
 }
 
 const QStringList SpotifySession::kLibraryScopes {
@@ -59,11 +62,23 @@ SpotifySession::SpotifySession(PlaybackCore *core, CredentialStore *credentials,
     , m_credentials(credentials)
     , m_errors(errors)
     , m_oauth(network)
-    , m_webApi(network)
+    , m_webApi(core)
 {
     if (!s_instance) {
         s_instance = this;
     }
+    // youtube's login, when signing in or using it changed it, goes to the keychain
+    m_webApi.setStateHandler([this](const QString &service, const QString &state) {
+        if (service == WebApi::kYouTube) {
+            detach([](CredentialStore *store, QByteArray value) -> QCoro::Task<> {
+                try {
+                    co_await store->saveSecret(QString(kYouTubeLoginKey), value);
+                } catch (const SpotifyError &error) {
+                    qWarning().noquote() << "the YouTube Music login could not be kept:" << error.message();
+                }
+            }(m_credentials, state.toUtf8()));
+        }
+    });
     connect(&m_oauth, &OAuthFlow::callbackReceived, this, [this](const QUrl &url) { detach(completeLogin(url)); });
 
     // long enough for a browser to start from cold in the background (half
@@ -186,7 +201,77 @@ QString SpotifySession::loginClientId(LoginPurpose purpose) const
 
 void SpotifySession::restoreSavedSessions()
 {
+    detach(restoreYouTube());
     detach(restore());
+}
+
+void SpotifySession::setMusicService(const QString &service)
+{
+    if (service == m_webApi.service() || (service != WebApi::kSpotify && service != WebApi::kYouTube)) {
+        return;
+    }
+    m_webApi.setService(service);
+    emit musicServiceChanged();
+    emit libraryConnectedChanged();
+}
+
+void SpotifySession::setYouTubeState(bool signedIn, bool busy)
+{
+    if (signedIn == m_youTubeSignedIn && busy == m_youTubeBusy) {
+        return;
+    }
+    m_youTubeSignedIn = signedIn;
+    m_youTubeBusy = busy;
+    emit youTubeChanged();
+}
+
+QCoro::Task<> SpotifySession::restoreYouTube()
+{
+    try {
+        const QByteArray login = co_await m_credentials->loadSecret(QString(kYouTubeLoginKey));
+        const QJsonValue status = co_await m_webApi.callOn(WebApi::kYouTube, QStringLiteral("restoreState"),
+                                                            {{QStringLiteral("state"), QString::fromUtf8(login)}});
+        setYouTubeState(status.toObject().value(QStringLiteral("signedIn")).toBool(), false);
+        if (m_youTubeSignedIn && m_webApi.isYouTube()) {
+            emit musicServiceChanged();
+        }
+    } catch (const SpotifyError &error) {
+        qWarning().noquote() << "the YouTube Music login could not be read:" << error.message();
+    } catch (const Cancelled &) {
+    }
+}
+
+void SpotifySession::signInToYouTube(const QString &cookies)
+{
+    if (cookies.trimmed().isEmpty() || m_youTubeBusy) {
+        return;
+    }
+    detach(runYouTubeSignIn(QStringLiteral("signIn"), {{QStringLiteral("cookie"), cookies}}));
+}
+
+void SpotifySession::signOutOfYouTube()
+{
+    detach(runYouTubeSignIn(QStringLiteral("signOut"), {}));
+}
+
+QCoro::Task<> SpotifySession::runYouTubeSignIn(QString method, QJsonObject args)
+{
+    setYouTubeState(m_youTubeSignedIn, true);
+    try {
+        const QJsonValue status = co_await m_webApi.callOn(WebApi::kYouTube, method, args);
+        setYouTubeState(status.toObject().value(QStringLiteral("signedIn")).toBool(), false);
+        if (m_webApi.isYouTube()) {
+            // the library now shows (or no longer shows) the account's own
+            emit musicServiceChanged();
+        }
+    } catch (const SpotifyError &error) {
+        setYouTubeState(m_youTubeSignedIn, false);
+        if (m_errors) {
+            m_errors->show(error.message());
+        }
+    } catch (const Cancelled &) {
+        setYouTubeState(m_youTubeSignedIn, false);
+    }
 }
 
 QCoro::Task<> SpotifySession::restore()

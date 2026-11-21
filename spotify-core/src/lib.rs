@@ -47,6 +47,7 @@ mod dsp;
 mod file_playback;
 pub mod live_input;
 pub mod local;
+pub mod music;
 mod output;
 mod playlist;
 mod spectrum;
@@ -144,7 +145,8 @@ struct PlayerSlot {
 
 impl PlayerSlot {
     fn set_gain(&self, gain: f64) {
-        self.gain.store(gain.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        self.gain
+            .store(gain.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -419,7 +421,10 @@ impl SpotifyCore {
             mixer.set_volume((state.volume * VolumeCtrl::MAX_VOLUME as f32).round() as u16);
             state.session = Some(session);
             state.mixer = Some(mixer);
-            (state.player.replace(player), state.standby_player.replace(standby))
+            (
+                state.player.replace(player),
+                state.standby_player.replace(standby),
+            )
         };
         // drop outside the state lock because this may wait on the player thread
         if let Some(previous) = previous {
@@ -602,6 +607,9 @@ impl SpotifyCore {
     /// (begin_playback_request). a newer request ends it with SUPERSEDED, at
     /// once and without touching the outputs if it has not switched them yet.
     pub async fn play_track_as(&self, spotify_uri: String, ticket: u64) -> Result<(), String> {
+        if spotify_uri.starts_with(music::youtube::URI_PREFIX) {
+            return self.play_youtube_as(&spotify_uri, ticket).await;
+        }
         let uri = Self::parse_playable_uri(&spotify_uri)?;
         let mut newer = self.playback_generation.subscribe();
         if !self.is_latest_request(ticket) {
@@ -661,6 +669,10 @@ impl SpotifyCore {
     /// prepares the active player and, when crossfade is enabled, the standby
     /// player so the next track is ready for a normal start or a handoff.
     pub fn preload_track(&self, spotify_uri: String, preload_standby: bool) -> Result<(), String> {
+        if spotify_uri.starts_with(music::youtube::URI_PREFIX) {
+            // librespot has nothing to ready: prefetch_youtube fetches the file
+            return Ok(());
+        }
         let uri = Self::parse_playable_uri(&spotify_uri)?;
         let normalisation = self.volume_normalization();
         let (active, standby) = self.player_slots()?;
@@ -684,6 +696,9 @@ impl SpotifyCore {
         duration_ms: u32,
         ticket: u64,
     ) -> Result<(), String> {
+        if spotify_uri.starts_with(music::youtube::URI_PREFIX) {
+            return Err("crossfade is unavailable for YouTube Music playback".to_owned());
+        }
         let uri = Self::parse_playable_uri(&spotify_uri)?;
         let mut newer = self.playback_generation.subscribe();
         if !self.is_latest_request(ticket) {
@@ -724,10 +739,20 @@ impl SpotifyCore {
             }
             match event {
                 PlayerEvent::TrackChanged { audio_item } => duration = audio_item.duration_ms,
-                PlayerEvent::Playing { track_id, position_ms, .. } if track_id == uri => {
+                PlayerEvent::Playing {
+                    track_id,
+                    position_ms,
+                    ..
+                } if track_id == uri => {
                     let mut state = self.lock_state()?;
-                    if !state.player.as_ref().is_some_and(|slot| Arc::ptr_eq(&slot.player, &outgoing.player))
-                        || !state.standby_player.as_ref().is_some_and(|slot| Arc::ptr_eq(&slot.player, &incoming.player))
+                    if !state
+                        .player
+                        .as_ref()
+                        .is_some_and(|slot| Arc::ptr_eq(&slot.player, &outgoing.player))
+                        || !state
+                            .standby_player
+                            .as_ref()
+                            .is_some_and(|slot| Arc::ptr_eq(&slot.player, &incoming.player))
                     {
                         incoming.set_gain(0.0);
                         incoming.player.stop();
@@ -771,7 +796,8 @@ impl SpotifyCore {
                     outgoing.player.stop();
                     return;
                 }
-                let progress = (started.elapsed().as_secs_f64() / fade_duration.as_secs_f64()).clamp(0.0, 1.0);
+                let progress =
+                    (started.elapsed().as_secs_f64() / fade_duration.as_secs_f64()).clamp(0.0, 1.0);
                 let angle = progress * std::f64::consts::FRAC_PI_2;
                 outgoing.set_gain(angle.cos());
                 incoming.set_gain(angle.sin());
@@ -818,7 +844,11 @@ impl SpotifyCore {
         let local = self.local_active()?;
         let (active, standby, sink) = {
             let state = self.lock_state()?;
-            (state.player.clone(), state.standby_player.clone(), state.local_sink.clone())
+            (
+                state.player.clone(),
+                state.standby_player.clone(),
+                state.local_sink.clone(),
+            )
         };
         if local && let Ok(mut timeline) = self.timeline.lock() {
             let position = timeline.position_ms;
@@ -939,10 +969,9 @@ impl SpotifyCore {
         {
             let state = self.lock_state()?;
             if state.local_playback.is_none()
-                && state
-                    .live
-                    .as_ref()
-                    .is_some_and(|(playing, cancel)| Arc::ptr_eq(playing, &buffer) && !cancel.load(Ordering::Relaxed))
+                && state.live.as_ref().is_some_and(|(playing, cancel)| {
+                    Arc::ptr_eq(playing, &buffer) && !cancel.load(Ordering::Relaxed)
+                })
                 && !sink.empty()
             {
                 drop(state);
@@ -985,7 +1014,9 @@ impl SpotifyCore {
     /// the rate the file output runs at, opening it if it is not yet: live
     /// audio recorded at it plays without being resampled. 0 if there is none
     pub fn output_rate(&self) -> u32 {
-        self.resolve_live_sink().map(|sink| sink.rate()).unwrap_or(0)
+        self.resolve_live_sink()
+            .map(|sink| sink.rate())
+            .unwrap_or(0)
     }
 
     /// stops playing a live buffer, if one is
@@ -1004,6 +1035,43 @@ impl SpotifyCore {
     }
 
     /// plays a music file of the person's own, from anywhere on disk
+    /// where youtube songs are downloaded to, and how much of them is kept:
+    /// beside the spotify cache when there is one, else in the temporary folder
+    fn youtube_cache(&self) -> Result<(PathBuf, u64), String> {
+        const LEAST: u64 = 256 * 1024 * 1024;
+        Ok(match self.lock_state()?.audio_cache.clone() {
+            Some((path, limit)) => (PathBuf::from(path).join("youtube"), limit.max(LEAST)),
+            None => (std::env::temp_dir().join("swiftify-youtube"), LEAST),
+        })
+    }
+
+    /// downloads a youtube music song ahead, so it starts at once when its turn comes
+    pub async fn prefetch_youtube(&self, uri: String) -> Result<(), String> {
+        let (dir, limit) = self.youtube_cache()?;
+        let video_id = uri.rsplit(':').next().unwrap_or_default().to_owned();
+        music::youtube::service()
+            .audio_file(&video_id, &dir, limit)
+            .await
+            .map(|_| ())
+    }
+
+    /// a youtube music song: downloaded (once), then played as a local file
+    /// is, through the equalizer and the visualizer. a newer request
+    /// abandons the download.
+    async fn play_youtube_as(&self, uri: &str, ticket: u64) -> Result<(), String> {
+        let video_id = uri.rsplit(':').next().unwrap_or_default().to_owned();
+        let (dir, limit) = self.youtube_cache()?;
+        let mut newer = self.playback_generation.subscribe();
+        if !self.is_latest_request(ticket) {
+            return Err(SUPERSEDED.to_owned());
+        }
+        let path = tokio::select! {
+            path = music::youtube::service().audio_file(&video_id, &dir, limit) => path?,
+            _ = newer.wait_for(|generation| *generation != ticket) => return Err(SUPERSEDED.to_owned()),
+        };
+        self.play_path_as(path, ticket)
+    }
+
     pub async fn play_file(&self, path: String) -> Result<(), String> {
         let ticket = self.begin_playback_request();
         self.play_file_as(path, ticket).await
@@ -1141,6 +1209,13 @@ impl SpotifyCore {
     }
 
     pub async fn lyrics_json(&self, spotify_uri: String) -> Result<String, String> {
+        if spotify_uri.starts_with(music::youtube::URI_PREFIX) {
+            let args = serde_json::json!({ "uri": spotify_uri }).to_string();
+            let envelope = music::call("youtube", "lyrics", &args, "").await?;
+            let value: serde_json::Value =
+                serde_json::from_str(&envelope).map_err(|error| error.to_string())?;
+            return Ok(value["value"].to_string());
+        }
         let uri = Self::parse_playable_uri(&spotify_uri)?;
         let track_id = SpotifyId::try_from(&uri)
             .map_err(|error| format!("invalid Spotify track for lyrics: {error}"))?;
@@ -1183,7 +1258,10 @@ impl SpotifyCore {
     /// itself: interleaved stereo, at `output_gain` of its full level. only
     /// the visualizers see it; nothing of it is played
     pub fn analyse_live(&self, samples: &[f32], output_gain: f64) {
-        let mut analysis = self.live_analysis.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut analysis = self
+            .live_analysis
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         analysis.feed(&self.spectrum, samples, output_gain);
     }
 
@@ -1199,8 +1277,14 @@ impl SpotifyCore {
     /// rebuilt output or a new session, would play on unheard of: stop it
     fn release_if_orphaned(&self, player: &Arc<Player>) {
         let retained = self.lock_state().ok().is_some_and(|state| {
-            state.player.as_ref().is_some_and(|slot| Arc::ptr_eq(&slot.player, player))
-                || state.standby_player.as_ref().is_some_and(|slot| Arc::ptr_eq(&slot.player, player))
+            state
+                .player
+                .as_ref()
+                .is_some_and(|slot| Arc::ptr_eq(&slot.player, player))
+                || state
+                    .standby_player
+                    .as_ref()
+                    .is_some_and(|slot| Arc::ptr_eq(&slot.player, player))
         });
         if !retained {
             player.stop();
@@ -1224,7 +1308,10 @@ impl SpotifyCore {
             return Err("not connected to spotify".to_owned());
         }
 
-        let active = state.player.clone().ok_or_else(|| "spotify player is not initialized".to_owned())?;
+        let active = state
+            .player
+            .clone()
+            .ok_or_else(|| "spotify player is not initialized".to_owned())?;
         Ok((active, state.standby_player.clone()))
     }
 
@@ -1264,8 +1351,8 @@ impl SpotifyCore {
             )
         };
         let config = Self::player_config(bitrate, normalisation);
-        let new_active =
-            needs_active.then(|| self.make_player_slot(&session, &mixer, config.clone(), true, 1.0));
+        let new_active = needs_active
+            .then(|| self.make_player_slot(&session, &mixer, config.clone(), true, 1.0));
         let new_standby =
             needs_standby.then(|| self.make_player_slot(&session, &mixer, config, false, 0.0));
         let (old_active, old_standby, active, standby) = {
@@ -1276,7 +1363,12 @@ impl SpotifyCore {
                 .player
                 .clone()
                 .ok_or_else(|| "spotify player is not initialized".to_owned())?;
-            (old_active, old_standby, active, state.standby_player.clone())
+            (
+                old_active,
+                old_standby,
+                active,
+                state.standby_player.clone(),
+            )
         };
         if let Some(old) = old_active {
             old.active.store(false, Ordering::Release);
@@ -1312,7 +1404,13 @@ impl SpotifyCore {
                 .mixer
                 .clone()
                 .ok_or_else(|| "Spotify player is not initialized".to_owned())?;
-            (session, mixer, state.stream_bitrate, normalisation, outgoing)
+            (
+                session,
+                mixer,
+                state.stream_bitrate,
+                normalisation,
+                outgoing,
+            )
         };
         let config = Self::player_config(bitrate, normalisation);
         let new_standby = self.make_player_slot(&session, &mixer, config, false, 0.0);

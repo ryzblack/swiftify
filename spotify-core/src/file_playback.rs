@@ -236,7 +236,7 @@ mod tests {
         let playback = LocalPlayback {
             path: PathBuf::new(),
             duration_ms: 120_000,
-            pushed_frames: Arc::new(AtomicU64::new(44_100 as u64 * 2)),
+            pushed_frames: Arc::new(AtomicU64::new(44_100_u64 * 2)),
             base_position_ms: 30_000,
             channels: 2,
             sample_rate: 44_100,

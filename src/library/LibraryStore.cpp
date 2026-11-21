@@ -23,11 +23,12 @@
 #include "core/PlaybackCore.h"
 #include "library/LocalLibrary.h"
 #include "playback/PlaybackController.h"
-#include "spotify/SpotifyJson.h"
 #include "spotify/SpotifyLink.h"
 #include "spotify/SpotifySession.h"
 
 #include <QCollator>
+
+#include <swiftify_core.h>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLoggingCategory>
@@ -84,30 +85,25 @@ bool sameSongs(const QList<Song> &left, const QList<Song> &right)
     });
 }
 
-/// the items page PlaybackCore::playlistJson completes with
-QList<Song> songsFromItems(const QString &payload)
+/// the songs in a page shaped like the web api's, read by the core
+/// (swiftify_spotify_songs_json): "items" for PlaybackCore::playlistJson's
+/// page, "tracks" for PlaybackCore::artistTopTracksJson's response
+QList<Song> songsFromPage(const QString &payload, const char *kind)
 {
-    QList<Song> songs;
-    const QJsonObject page = QJsonDocument::fromJson(payload.toUtf8()).object();
-    for (const QJsonValue &value : page.value(QStringLiteral("items")).toArray()) {
-        if (const auto song = json::wrappedTrack(value.toObject())) {
-            songs.append(*song);
-        }
-    }
-    return songs;
+    char *json = swiftify_spotify_songs_json(payload.toUtf8().constData(), kind);
+    const QJsonArray songs = QJsonDocument::fromJson(json).array();
+    swiftify_string_free(json);
+    return WebApi::songsFromJson(songs);
 }
 
-/// the top tracks response PlaybackCore::artistTopTracksJson completes with
+QList<Song> songsFromItems(const QString &payload)
+{
+    return songsFromPage(payload, "items");
+}
+
 QList<Song> songsFromTopTracks(const QString &payload)
 {
-    QList<Song> songs;
-    const QJsonObject response = QJsonDocument::fromJson(payload.toUtf8()).object();
-    for (const QJsonValue &value : response.value(QStringLiteral("tracks")).toArray()) {
-        if (const auto song = json::track(value.toObject())) {
-            songs.append(*song);
-        }
-    }
-    return songs;
+    return songsFromPage(payload, "tracks");
 }
 
 } // namespace
@@ -167,6 +163,13 @@ LibraryStore::LibraryStore(SpotifySession *session, Settings *settings, ErrorCen
     connect(m_savedSongs, &SongListModel::countChanged, this, &LibraryStore::savedSongTotalChanged);
     m_session->setInitialLibraryLoader([this] { return loadInitialLibrary(); });
     connect(m_session, &SpotifySession::loggedOut, this, &LibraryStore::reset);
+    // another service's library replaces this one's
+    connect(m_session, &SpotifySession::musicServiceChanged, this, [this] {
+        reset();
+        if (m_session->isLibraryConnected()) {
+            detach(loadInitialLibrary());
+        }
+    });
 }
 
 LibraryStore::~LibraryStore()
@@ -674,7 +677,8 @@ QCoro::Task<> LibraryStore::runPlaylistLoad(Playlist playlist, CancelToken token
     const Destination target {Page::Playlist, playlist.id};
     try {
         QList<Song> loaded;
-        if (playlist.canModify(m_profile.id)) {
+        // youtube music gives any playlist's songs
+        if (playlist.uri.startsWith(QLatin1StringView("ytmusic:")) || playlist.canModify(m_profile.id)) {
             loaded = co_await m_session->withLibraryAccessToken<QList<Song>>(
                 [this, id = playlist.id](QString accessToken) { return m_session->webApi().playlistSongs(id, accessToken); });
         } else {
@@ -765,10 +769,15 @@ QCoro::Task<> LibraryStore::runArtistLoad(Artist artist, CancelToken token)
         QList<Song> topSongs;
         bool topSongsLoaded = false;
         try {
-            co_await m_session->ensureFreshPlaybackConnection();
-            throwIfCancelled(token);
-            topSongs = songsFromTopTracks(
-                co_await m_session->core()->artistTopTracksJson(QStringLiteral("spotify:artist:%1").arg(artist.id)));
+            if (artist.uri.startsWith(QLatin1StringView("ytmusic:"))) {
+                topSongs = WebApi::songsFromJson(co_await m_session->webApi().callOn(
+                    WebApi::kYouTube, QStringLiteral("artistTopTracks"), {{QStringLiteral("id"), artist.id}}));
+            } else {
+                co_await m_session->ensureFreshPlaybackConnection();
+                throwIfCancelled(token);
+                topSongs = songsFromTopTracks(
+                    co_await m_session->core()->artistTopTracksJson(QStringLiteral("spotify:artist:%1").arg(artist.id)));
+            }
             topSongsLoaded = true;
         } catch (const SpotifyError &error) {
             qCWarning(lcLibrary).noquote() << "loading top songs for" << artist.name << ':' << error.message();
@@ -1126,7 +1135,8 @@ QCoro::Task<> LibraryStore::loadSavedStatuses(QList<Song> songs)
 
 QCoro::Task<> LibraryStore::loadInitialLibrary()
 {
-    if (!m_session->hasLibraryToken()) {
+    // signed out of youtube music there is no library, only the catalog
+    if (!m_session->hasLibraryToken() || (m_session->webApi().isYouTube() && !m_session->isYouTubeSignedIn())) {
         co_return;
     }
     if (!m_session->libraryNeedsAuthorizationUpgrade()) {

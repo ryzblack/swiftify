@@ -29,17 +29,17 @@
 //! hands out is owned by the caller and released with `swiftify_string_free`.
 //! a null error string means success.
 
-#[cfg(unix)]
-use std::{
-    io::Write,
-    os::{fd::AsRawFd, unix::net::UnixStream},
-};
 use std::{
     collections::VecDeque,
     ffi::{CStr, CString, c_char, c_int, c_void},
     future::Future,
     ptr,
     sync::{Arc, Mutex, OnceLock},
+};
+#[cfg(unix)]
+use std::{
+    io::Write,
+    os::{fd::AsRawFd, unix::net::UnixStream},
 };
 
 use tokio::runtime::{Builder, Runtime};
@@ -439,9 +439,20 @@ pub unsafe extern "C" fn swiftify_core_preload_track(
         return into_raw(MISSING_CORE.to_owned());
     };
     // SAFETY: forwarded from the caller.
-    match unsafe { read_str(spotify_uri) }
-        .and_then(|uri| handle.core.preload_track(uri, preload_standby != 0))
-    {
+    let uri = match unsafe { read_str(spotify_uri) } {
+        Ok(uri) => uri,
+        Err(error) => return into_raw(error),
+    };
+    if uri.starts_with(crate::music::youtube::URI_PREFIX) {
+        let core = Arc::clone(&handle.core);
+        let uri = uri.clone();
+        runtime().spawn(async move {
+            if let Err(error) = core.prefetch_youtube(uri).await {
+                eprintln!("spotify-core: could not fetch the next YouTube song: {error}");
+            }
+        });
+    }
+    match handle.core.preload_track(uri, preload_standby != 0) {
         Ok(()) => ptr::null_mut(),
         Err(error) => into_raw(error),
     }
@@ -468,11 +479,53 @@ async_call!(
     }
 );
 async_call!(
+    /// one call on a music service (crate::music::call): `service` is
+    /// "spotify" or "youtube", `args` a json object. completes with
+    /// `{"value", "state"}`, or fails with a ServiceError as json.
+    swiftify_core_service_call(service, method, args, access_token) => |_core| {
+        crate::music::call(&service, &method, &args, &access_token).await
+    }
+);
+async_call!(
     /// completes with an artist's top songs as json, read through the session.
     swiftify_core_artist_top_tracks_json(artist_uri) => |core| {
         core.artist_top_tracks_json(artist_uri).await
     }
 );
+
+/// the songs in a page shaped like spotify's web api, as the front end's Song
+/// json array: `kind` "items" reads a playlist items page
+/// (swiftify_core_playlist_json), "tracks" a top tracks response
+/// (swiftify_core_artist_top_tracks_json). never null; "[]" for what it cannot read.
+///
+/// # Safety
+/// `payload` and `kind` are null or valid nul-terminated strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn swiftify_spotify_songs_json(
+    payload: *const c_char,
+    kind: *const c_char,
+) -> *mut c_char {
+    use crate::music::spotify::{track, wrapped_track};
+    // SAFETY: forwarded from the caller.
+    let (Ok(payload), Ok(kind)) = (unsafe { read_str(payload) }, unsafe { read_str(kind) }) else {
+        return into_raw("[]".to_owned());
+    };
+    let page: serde_json::Value = serde_json::from_str(&payload).unwrap_or_default();
+    let entries = page
+        .get(kind.as_str())
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let songs: Vec<crate::music::Song> = if kind == "items" {
+        entries.iter().filter_map(wrapped_track).collect()
+    } else {
+        entries
+            .iter()
+            .filter_map(|entry| track(entry, &crate::music::Album::default()))
+            .collect()
+    };
+    into_raw(serde_json::to_string(&songs).unwrap_or_else(|_| "[]".to_owned()))
+}
 
 /// what a music file's tags say, as json (crate::local::LocalTags), or null
 /// with `*error` set. an embedded cover is written into `artwork_dir`. it
@@ -714,6 +767,121 @@ pub unsafe extern "C" fn swiftify_equalizer_frequencies(out: *mut f32, capacity:
     count
 }
 
+/// audio another program plays, handed over as it plays (live_input.rs)
+pub struct SwiftifyLiveBuffer {
+    buffer: Arc<crate::live_input::LiveBuffer>,
+    rate: u32,
+    channels: u32,
+}
+
+/// a buffer for interleaved f32 audio at `rate` and `channels`. it outlives
+/// any core it plays through; free it with `swiftify_live_buffer_free`.
+#[unsafe(no_mangle)]
+pub extern "C" fn swiftify_live_buffer_new(rate: u32, channels: u32) -> *mut SwiftifyLiveBuffer {
+    Box::into_raw(Box::new(SwiftifyLiveBuffer {
+        buffer: Arc::new(crate::live_input::LiveBuffer::new(rate, channels)),
+        rate,
+        channels,
+    }))
+}
+
+/// # Safety
+/// `buffer` is null or a pointer from `swiftify_live_buffer_new` that is not
+/// used again.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn swiftify_live_buffer_free(buffer: *mut SwiftifyLiveBuffer) {
+    if !buffer.is_null() {
+        // SAFETY: the caller hands back ownership.
+        drop(unsafe { Box::from_raw(buffer) });
+    }
+}
+
+/// adds `count` interleaved samples. safe to call from any thread, such as
+/// the one recording them.
+///
+/// # Safety
+/// `buffer` is null or live; `samples` points to `count` floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn swiftify_live_buffer_push(
+    buffer: *const SwiftifyLiveBuffer,
+    samples: *const f32,
+    count: usize,
+) {
+    // SAFETY: forwarded from the caller.
+    let Some(buffer) = (unsafe { buffer.as_ref() }) else {
+        return;
+    };
+    if samples.is_null() || count == 0 {
+        return;
+    }
+    // SAFETY: the caller guarantees `count` readable floats.
+    buffer
+        .buffer
+        .push(unsafe { std::slice::from_raw_parts(samples, count) });
+}
+
+/// plays what is pushed into `buffer` through the equalizer and the spectrum,
+/// in place of whatever played; one already playing carries on. returns null
+/// on success, or an error message to free.
+///
+/// # Safety
+/// `core` and `buffer` are null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn swiftify_core_play_live(
+    core: *const SwiftifyCore,
+    buffer: *const SwiftifyLiveBuffer,
+) -> *mut c_char {
+    // SAFETY: forwarded from the caller.
+    let Some(core) = (unsafe { handle(core) }) else {
+        return into_raw(MISSING_CORE.to_owned());
+    };
+    // SAFETY: forwarded from the caller.
+    let Some(buffer) = (unsafe { buffer.as_ref() }) else {
+        return into_raw("the live buffer was missing".to_owned());
+    };
+    error_string(
+        core.core
+            .play_live(Arc::clone(&buffer.buffer), buffer.rate, buffer.channels),
+    )
+}
+
+/// hands `count` interleaved stereo samples, heard at `output_gain` of their
+/// full level, to the spectrum alone, for audio another program plays to the
+/// speakers itself. safe to call from any thread, such as the one recording.
+///
+/// # Safety
+/// `core` is null or live; `samples` points to `count` floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn swiftify_core_analyse_live(
+    core: *const SwiftifyCore,
+    samples: *const f32,
+    count: usize,
+    output_gain: f32,
+) {
+    // SAFETY: forwarded from the caller.
+    let Some(core) = (unsafe { handle(core) }) else {
+        return;
+    };
+    if samples.is_null() || count == 0 {
+        return;
+    }
+    // SAFETY: the caller guarantees `count` readable floats.
+    core.core.analyse_live(
+        unsafe { std::slice::from_raw_parts(samples, count) },
+        f64::from(output_gain),
+    );
+}
+
+/// # Safety
+/// `core` is null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn swiftify_core_stop_live(core: *const SwiftifyCore) {
+    // SAFETY: forwarded from the caller.
+    if let Some(core) = unsafe { handle(core) } {
+        core.core.stop_live();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{io::Read, time::Duration};
@@ -806,7 +974,10 @@ mod tests {
     fn the_header_names_the_unavailable_message() {
         // the front end skips a track spotify will not play by it
         let header = include_str!("../include/swiftify_core.h");
-        let define = format!("#define SWIFTIFY_CORE_UNAVAILABLE \"{}\"", crate::UNAVAILABLE);
+        let define = format!(
+            "#define SWIFTIFY_CORE_UNAVAILABLE \"{}\"",
+            crate::UNAVAILABLE
+        );
         assert!(header.contains(&define));
     }
 
@@ -818,115 +989,5 @@ mod tests {
         assert!(!error.is_null());
         unsafe { swiftify_string_free(error) };
         unsafe { swiftify_core_free(ptr::null_mut()) };
-    }
-}
-
-/// audio another program plays, handed over as it plays (live_input.rs)
-pub struct SwiftifyLiveBuffer {
-    buffer: Arc<crate::live_input::LiveBuffer>,
-    rate: u32,
-    channels: u32,
-}
-
-/// a buffer for interleaved f32 audio at `rate` and `channels`. it outlives
-/// any core it plays through; free it with `swiftify_live_buffer_free`.
-#[unsafe(no_mangle)]
-pub extern "C" fn swiftify_live_buffer_new(rate: u32, channels: u32) -> *mut SwiftifyLiveBuffer {
-    Box::into_raw(Box::new(SwiftifyLiveBuffer {
-        buffer: Arc::new(crate::live_input::LiveBuffer::new(rate, channels)),
-        rate,
-        channels,
-    }))
-}
-
-/// # Safety
-/// `buffer` is null or a pointer from `swiftify_live_buffer_new` that is not
-/// used again.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn swiftify_live_buffer_free(buffer: *mut SwiftifyLiveBuffer) {
-    if !buffer.is_null() {
-        // SAFETY: the caller hands back ownership.
-        drop(unsafe { Box::from_raw(buffer) });
-    }
-}
-
-/// adds `count` interleaved samples. safe to call from any thread, such as
-/// the one recording them.
-///
-/// # Safety
-/// `buffer` is null or live; `samples` points to `count` floats.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn swiftify_live_buffer_push(
-    buffer: *const SwiftifyLiveBuffer,
-    samples: *const f32,
-    count: usize,
-) {
-    // SAFETY: forwarded from the caller.
-    let Some(buffer) = (unsafe { buffer.as_ref() }) else {
-        return;
-    };
-    if samples.is_null() || count == 0 {
-        return;
-    }
-    // SAFETY: the caller guarantees `count` readable floats.
-    buffer
-        .buffer
-        .push(unsafe { std::slice::from_raw_parts(samples, count) });
-}
-
-/// plays what is pushed into `buffer` through the equalizer and the spectrum,
-/// in place of whatever played; one already playing carries on. returns null
-/// on success, or an error message to free.
-///
-/// # Safety
-/// `core` and `buffer` are null or live.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn swiftify_core_play_live(
-    core: *const SwiftifyCore,
-    buffer: *const SwiftifyLiveBuffer,
-) -> *mut c_char {
-    // SAFETY: forwarded from the caller.
-    let Some(core) = (unsafe { handle(core) }) else {
-        return into_raw(MISSING_CORE.to_owned());
-    };
-    // SAFETY: forwarded from the caller.
-    let Some(buffer) = (unsafe { buffer.as_ref() }) else {
-        return into_raw("the live buffer was missing".to_owned());
-    };
-    error_string(core.core.play_live(Arc::clone(&buffer.buffer), buffer.rate, buffer.channels))
-}
-
-/// hands `count` interleaved stereo samples, heard at `output_gain` of their
-/// full level, to the spectrum alone, for audio another program plays to the
-/// speakers itself. safe to call from any thread, such as the one recording.
-///
-/// # Safety
-/// `core` is null or live; `samples` points to `count` floats.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn swiftify_core_analyse_live(
-    core: *const SwiftifyCore,
-    samples: *const f32,
-    count: usize,
-    output_gain: f32,
-) {
-    // SAFETY: forwarded from the caller.
-    let Some(core) = (unsafe { handle(core) }) else {
-        return;
-    };
-    if samples.is_null() || count == 0 {
-        return;
-    }
-    // SAFETY: the caller guarantees `count` readable floats.
-    core.core
-        .analyse_live(unsafe { std::slice::from_raw_parts(samples, count) }, f64::from(output_gain));
-}
-
-/// # Safety
-/// `core` is null or live.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn swiftify_core_stop_live(core: *const SwiftifyCore) {
-    // SAFETY: forwarded from the caller.
-    if let Some(core) = unsafe { handle(core) } {
-        core.core.stop_live();
     }
 }

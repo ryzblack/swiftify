@@ -19,17 +19,20 @@
 #pragma once
 
 #include "core/PlaybackCore.h"
+#include "core/RustCore.h"
 #include "spotify/SpotifyError.h"
 
 #include <swiftify_core.h>
 
 #include <QCoroSignal>
 #include <QElapsedTimer>
+#include <QScopeGuard>
 #include <QHash>
 #include <QSet>
 #include <QStringList>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <memory>
 #include <utility>
@@ -140,6 +143,24 @@ public:
     QCoro::Task<QString> lyricsJson(QString uri) override { co_return co_await await(QStringLiteral("lyrics"), uri); }
     QCoro::Task<QString> playlistJson(QString uri) override { co_return co_await await(QStringLiteral("playlist"), uri); }
     QCoro::Task<QString> artistTopTracksJson(QString uri) override { co_return co_await await(QStringLiteral("topTracks"), uri); }
+    /// the music services are the real ones, in the rust core, pointed at a
+    /// test's stand-in web api (SWIFTIFY_SPOTIFY_API); without one they fail
+    /// at once rather than reach the network
+    QCoro::Task<QString> serviceCall(QString service, QString method, QByteArray args, QString token) override
+    {
+        if (qEnvironmentVariableIsEmpty("SWIFTIFY_SPOTIFY_API")) {
+            throw SpotifyError::requestFailed(QStringLiteral("no stand-in web api in this test"));
+        }
+        if (!services) {
+            services = std::make_unique<RustCore>();
+        }
+        ++servicesInFlight;
+        const auto done = qScopeGuard([] { --servicesInFlight; });
+        co_return co_await services->serviceCall(service, method, args, token);
+    }
+    /// music-service calls not answered yet, for a test to wait on
+    static inline std::atomic<int> servicesInFlight {0};
+    std::unique_ptr<RustCore> services;
 
     void play() override
     {

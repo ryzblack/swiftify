@@ -58,6 +58,11 @@ public:
     virtual QCoro::Task<std::optional<StoredCredentials>> load(Account account) = 0;
     virtual QCoro::Task<> save(Account account, StoredCredentials credentials) = 0;
     virtual QCoro::Task<> removeAll() = 0;
+    /// another service's login, kept apart from spotify's: removeAll leaves
+    /// it. empty when there is none
+    virtual QCoro::Task<QByteArray> loadSecret(QString key) = 0;
+    /// an empty value removes it
+    virtual QCoro::Task<> saveSecret(QString key, QByteArray value) = 0;
 
     /// the keychain item names the apple apps use. a development build on a mac
     /// would otherwise share (and rotate) the swift app's own login.
@@ -78,6 +83,8 @@ public:
     QCoro::Task<std::optional<StoredCredentials>> load(Account account) override;
     QCoro::Task<> save(Account account, StoredCredentials credentials) override;
     QCoro::Task<> removeAll() override;
+    QCoro::Task<QByteArray> loadSecret(QString key) override;
+    QCoro::Task<> saveSecret(QString key, QByteArray value) override;
 };
 
 /// kept in memory, for tests.
@@ -86,8 +93,11 @@ public:
     QCoro::Task<std::optional<StoredCredentials>> load(Account account) override;
     QCoro::Task<> save(Account account, StoredCredentials credentials) override;
     QCoro::Task<> removeAll() override;
+    QCoro::Task<QByteArray> loadSecret(QString key) override;
+    QCoro::Task<> saveSecret(QString key, QByteArray value) override;
 
     QHash<Account, StoredCredentials> items;
+    QHash<QString, QByteArray> secrets;
 };
 
 } // namespace swiftify

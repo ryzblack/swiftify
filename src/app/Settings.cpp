@@ -193,6 +193,10 @@ void Settings::load()
         source == QLatin1StringView("statsfm") || source == QLatin1StringView("local")) {
         m_statsSource = source;
     }
+    if (const QString service = stored<QString>(m_store, "musicService", m_musicService);
+        service == QLatin1StringView("spotify") || service == QLatin1StringView("youtube")) {
+        m_musicService = service;
+    }
     m_statsFmUsername = stored<QString>(m_store, "statsFmUsername", m_statsFmUsername).trimmed();
     m_trackListening = stored<bool>(m_store, "trackListening", m_trackListening);
     m_nativeTitleBar = stored<bool>(m_store, "nativeTitleBar", m_nativeTitleBar);
@@ -541,6 +545,16 @@ void Settings::setStatsSource(const QString &value)
     m_statsSource = value;
     m_store.setValue(QStringLiteral("statsSource"), value);
     emit statsSourceChanged();
+}
+
+void Settings::setMusicService(const QString &value)
+{
+    if (m_musicService == value || (value != QLatin1StringView("spotify") && value != QLatin1StringView("youtube"))) {
+        return;
+    }
+    m_musicService = value;
+    m_store.setValue(QStringLiteral("musicService"), value);
+    emit musicServiceChanged();
 }
 
 void Settings::setStatsFmUsername(const QString &value)

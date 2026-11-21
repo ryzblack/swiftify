@@ -96,6 +96,17 @@ void swiftify_core_artist_top_tracks_json(const SwiftifyCore *core, uint64_t req
  * ogg vorbis, wav, aiff, or aac or apple lossless in an m4a. */
 void swiftify_core_play_file(const SwiftifyCore *core, uint64_t request_id, const char *path);
 
+/* one call on a music service (spotify-core src/music): service is "spotify"
+ * or "youtube", method one of MusicService's, args a json object. completes
+ * with {"value": ..., "state": <a changed login to keep, when it changed>},
+ * or fails with {"kind", "message", "retryAfter"} as json. */
+void swiftify_core_service_call(const SwiftifyCore *core, uint64_t request_id, const char *service,
+                                const char *method, const char *args, const char *access_token);
+/* the songs in a web-api-shaped page as a Song json array: kind "items" for
+ * swiftify_core_playlist_json's page, "tracks" for the top tracks response.
+ * never null; free with swiftify_string_free. */
+char *swiftify_spotify_songs_json(const char *payload, const char *kind);
+
 /* what a music file's tags say, as json: title, artist, album, albumArtist,
  * trackNumber, discNumber, date, genre (each null when the file does not
  * say), durationMs and artworkPath (an embedded cover written into

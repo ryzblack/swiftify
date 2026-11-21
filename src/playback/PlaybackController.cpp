@@ -486,6 +486,20 @@ void PlaybackController::queueDidChange()
     preloadNextTrack();
 }
 
+void PlaybackController::reportYouTubePlay(const QString &uri)
+{
+    detach(runReportYouTubePlay(uri));
+}
+
+QCoro::Task<> PlaybackController::runReportYouTubePlay(QString uri)
+{
+    try {
+        co_await m_session->webApi().callOn(WebApi::kYouTube, QStringLiteral("reportPlayback"), {{QStringLiteral("uri"), uri}});
+    } catch (const SpotifyError &error) {
+        qCDebug(lcPlayer).noquote() << "YouTube history did not take the song:" << error.message();
+    }
+}
+
 void PlaybackController::preloadNextTrack()
 {
     if (!m_playing || !m_currentSong || m_currentSong->isLocalFile()) {
@@ -721,13 +735,17 @@ QCoro::Task<> PlaybackController::runStartPlayback(Song song, CancelToken token,
             m_audioOutputNeedsRestart = false;
         }
 
-        if (song.isLocalFile()) {
+        if (song.isLocalFile() || song.isYouTube()) {
             // the core gives up on a request that something newer replaced:
             // another song, or the session reconnecting. this song is still
-            // the one wanted, unless the request was withdrawn
+            // the one wanted, unless the request was withdrawn. youtube's
+            // songs play as files do, without the spotify session
+            const auto start = [this, &song] {
+                return song.isLocalFile() ? m_core->playFile(song.localPath()) : m_core->playTrack(song.uri);
+            };
             bool retry = false;
             try {
-                co_await m_core->playFile(song.localPath());
+                co_await start();
             } catch (const SpotifyError &error) {
                 if (error.kind() != SpotifyError::Kind::Superseded) {
                     throw;
@@ -736,7 +754,10 @@ QCoro::Task<> PlaybackController::runStartPlayback(Song song, CancelToken token,
             }
             if (retry) {
                 throwIfCancelled(token);
-                co_await m_core->playFile(song.localPath());
+                co_await start();
+            }
+            if (song.isYouTube()) {
+                reportYouTubePlay(song.uri);
             }
         } else {
             co_await m_session->ensureFreshPlaybackConnection();
@@ -951,6 +972,8 @@ QCoro::Task<> PlaybackController::restartAudioOutput(CancelToken token)
 
         if (song.isLocalFile()) {
             co_await m_core->playFile(song.localPath());
+        } else if (song.isYouTube()) {
+            co_await m_core->playTrack(song.uri);
         } else {
             // reconnect now instead of waiting for a dead session to time out
             co_await m_session->ensureFreshPlaybackConnection(true);
@@ -1218,7 +1241,7 @@ void PlaybackController::pollPlayback()
     }
     syncPositionAndDuration();
     if (m_playing && !m_crossfadeStarted && m_settings->crossfadeEnabled() && m_currentSong
-        && !m_currentSong->isLocalFile() && m_durationMs > 0) {
+        && !m_currentSong->isLocalFile() && !m_currentSong->isYouTube() && m_durationMs > 0) {
         std::optional<Song> next;
         bool recordHistory = true;
         if (m_repeatMode == RepeatMode::One) {
@@ -1227,7 +1250,7 @@ void PlaybackController::pollPlayback()
         } else {
             next = upcomingSong();
         }
-        if (next && !next->isLocalFile()) {
+        if (next && !next->isLocalFile() && !next->isYouTube()) {
             quint32 duration = quint32(m_settings->crossfadeDurationSeconds() * 1000);
             duration = std::min(duration, m_durationMs / 2);
             if (next->durationMs > 0) {

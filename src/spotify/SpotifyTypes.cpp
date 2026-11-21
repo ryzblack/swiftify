@@ -74,6 +74,9 @@ QString Song::shareUrl() const
     if (id.isEmpty()) {
         return {};
     }
+    if (isYouTube()) {
+        return QStringLiteral("https://music.youtube.com/watch?v=") + id;
+    }
     return QStringLiteral("https://open.spotify.com/track/") + id;
 }
 
@@ -87,7 +90,9 @@ Album Song::albumDestination() const
     album.name = albumName;
     album.artists = artists;
     album.artworkUrl = artworkUrl;
-    album.uri = albumUri.isEmpty() ? QStringLiteral("spotify:album:") + albumId : albumUri;
+    album.uri = !albumUri.isEmpty() ? albumUri
+        : isYouTube()               ? QStringLiteral("ytmusic:album:") + albumId
+                                    : QStringLiteral("spotify:album:") + albumId;
     return album;
 }
 

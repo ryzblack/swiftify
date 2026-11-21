@@ -672,6 +672,69 @@ Item {
                 }
             }
 
+            // which service the library and search read from, and youtube
+            // music's own login (its cookies, kept in the keychain)
+            ContentSection {
+                title: qsTr("Music Service")
+                symbol: "library_music"
+
+                ConfigSelection {
+                    text: qsTr("Library and search from")
+                    currentIndex: Session.musicService === "youtube" ? 1 : 0
+                    segments: [
+                        Segment { text: "Spotify" },
+                        Segment { text: "YouTube Music" }
+                    ]
+                    onActivated: (index) => Settings.musicService = index === 1 ? "youtube" : "spotify"
+                }
+                StatusRow {
+                    label: "YouTube Music"
+                    value: Session.youTubeBusy ? qsTr("Signing in…")
+                        : Session.youTubeSignedIn ? qsTr("Signed in") : qsTr("Not signed in")
+                    good: Session.youTubeSignedIn
+                }
+                OutlinedTextField {
+                    id: youTubeCookies
+                    x: 8
+                    width: Math.min(460, parent.width - 16)
+                    visible: !Session.youTubeSignedIn
+                    placeholder: qsTr("Cookie header or cookies.txt from music.youtube.com")
+                    onAccepted: {
+                        Session.signInToYouTube(text)
+                        text = ""
+                    }
+                }
+                Flow {
+                    x: 8
+                    width: parent.width - 16
+                    spacing: 8
+                    topPadding: 4
+
+                    TextButton {
+                        visible: !Session.youTubeSignedIn
+                        variant: TextButton.Tonal
+                        symbol: "login"
+                        text: qsTr("Sign In")
+                        enabled: !Session.youTubeBusy && youTubeCookies.text.trim().length > 0
+                        onClicked: {
+                            Session.signInToYouTube(youTubeCookies.text)
+                            youTubeCookies.text = ""
+                        }
+                    }
+                    TextButton {
+                        visible: Session.youTubeSignedIn
+                        variant: TextButton.Tonal
+                        symbol: "logout"
+                        text: qsTr("Sign Out of YouTube Music")
+                        enabled: !Session.youTubeBusy
+                        onClicked: Session.signOutOfYouTube()
+                    }
+                }
+                NoteText {
+                    text: qsTr("search and playback work signed out. your library, likes, playlists and history need the cookies of a signed-in music.youtube.com tab, kept in your keychain. songs you play are added to your YouTube history so it follows you to other devices. playback needs yt-dlp")
+                }
+            }
+
             ContentSection {
                 title: qsTr("Playback")
                 symbol: "play_circle"

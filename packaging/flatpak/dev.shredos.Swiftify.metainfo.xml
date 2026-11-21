@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 shred0s -->
+<component type="desktop-application">
+  <id>dev.shredos.Swiftify</id>
+  <name>Swiftify</name>
+  <summary>A light music player for Spotify and YouTube Music</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="dev.shredos">
+    <name>shred0s</name>
+  </developer>
+  <description>
+    <p>
+      Swiftify plays your Spotify or YouTube Music library in a Material 3 Expressive window,
+      with an immersive player, synced lyrics, visualizers, an equalizer and local files with
+      editable tags. It runs far lighter than Spotify's own client.
+    </p>
+    <p>
+      Spotify needs a Premium account and your own Spotify client id. YouTube Music searches and
+      plays signed out; your library and history need the cookies of a signed-in browser tab.
+      Nothing is sent anywhere but the music service you chose.
+    </p>
+  </description>
+  <launchable type="desktop-id">dev.shredos.Swiftify.desktop</launchable>
+  <url type="homepage">https://github.com/swiftify-org/swiftify</url>
+  <url type="bugtracker">https://github.com/swiftify-org/swiftify/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/swiftify-org/swiftify/main/assets/home.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <binary>swiftify</binary>
+  </provides>
+  <releases>
+    <release version="0.25.2" date="2026-11-21"/>
+  </releases>
+</component>

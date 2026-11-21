@@ -665,5 +665,13 @@
   "not a spotify artist: %1": "Этот адрес не является страницей исполнителя Spotify: %1",
   "the artist could not be read: %1": "Не удалось обработать сведения об исполнителе: %1",
   "a required string was missing": "Отсутствует обязательный параметр",
-  "a string was not valid utf-8": "Текст содержит некорректную последовательность UTF-8"
+  "a string was not valid utf-8": "Текст содержит некорректную последовательность UTF-8",
+  "Music Service": "Музыкальный сервис",
+  "Library and search from": "Библиотека и поиск из",
+  "Signing in…": "Вход…",
+  "Signed in": "Вход выполнен",
+  "Cookie header or cookies.txt from music.youtube.com": "Заголовок Cookie или cookies.txt с music.youtube.com",
+  "Sign In": "Войти",
+  "Sign Out of YouTube Music": "Выйти из YouTube Music",
+  "search and playback work signed out. your library, likes, playlists and history need the cookies of a signed-in music.youtube.com tab, kept in your keychain. songs you play are added to your YouTube history so it follows you to other devices. playback needs yt-dlp": "поиск и воспроизведение работают без входа. для библиотеки, лайков, плейлистов и истории нужны cookies вкладки music.youtube.com, где выполнен вход; они хранятся в связке ключей. прослушанные песни добавляются в историю YouTube, чтобы она была на всех устройствах. для воспроизведения нужен yt-dlp"
 }

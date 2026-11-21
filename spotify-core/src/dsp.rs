@@ -579,8 +579,10 @@ mod tests {
     #[test]
     fn preamp_gain_scales_the_whole_spectrum_before_the_equalizer() {
         let shared = SharedDsp::new();
-        let mut settings = DspSettings::default();
-        settings.preamp_db = 6.0;
+        let settings = DspSettings {
+            preamp_db: 6.0,
+            ..DspSettings::default()
+        };
         shared.set(settings);
         let mut processor = DspProcessor::new(shared);
 
